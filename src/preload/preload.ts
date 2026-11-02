@@ -3,6 +3,7 @@ import type { EvergrowApi, TxFilter, UpdateState } from '../shared/types';
 
 const api: EvergrowApi = {
   getMeta: () => ipcRenderer.invoke('app:meta'),
+  setWindowChrome: (input) => ipcRenderer.invoke('window:chrome', input),
   dashboard: (month) => ipcRenderer.invoke('dashboard:get', month),
   transactions: {
     list: (filter: TxFilter) => ipcRenderer.invoke('tx:list', filter),
@@ -20,8 +21,16 @@ const api: EvergrowApi = {
     get: () => ipcRenderer.invoke('settings:get'),
     save: (input) => ipcRenderer.invoke('settings:save', input),
   },
+  theme: {
+    get: () => ipcRenderer.invoke('theme:get'),
+    save: (input) => ipcRenderer.invoke('theme:save', input),
+  },
   report: (range) => ipcRenderer.invoke('report:get', range),
   exportFile: (format, filter) => ipcRenderer.invoke(`export:${format}`, filter),
+  importFile: {
+    preview: () => ipcRenderer.invoke('import:preview'),
+    commit: (token, options) => ipcRenderer.invoke('import:commit', token, options),
+  },
   data: {
     backup: () => ipcRenderer.invoke('data:backup'),
     restore: () => ipcRenderer.invoke('data:restore'),

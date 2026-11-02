@@ -2,6 +2,7 @@ import { DatabaseSync, backup as sqliteBackup } from 'node:sqlite';
 import fs from 'node:fs';
 import path from 'node:path';
 import { monthBounds, pad, shiftMonth, todayIso } from '../shared/dates';
+import { DEFAULT_THEME, getThemePreset, type ThemeSettings } from '../shared/theme';
 import type {
   Category,
   CategoryInput,
@@ -9,6 +10,8 @@ import type {
   CompanySettings,
   DashboardData,
   DataStats,
+  ImportResult,
+  Method,
   MonthPoint,
   ReportData,
   SeedResult,
@@ -60,14 +63,45 @@ interface RawTxRow {
   party: string;
   note: string;
   method: Transaction['method'];
+  reference: string;
+  port: string;
+  goodsName: string;
+  goodsType: string;
+  containerNo: string;
+  containerSize: string;
+  carrier: string;
+  detailsJson: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface ImportTransactionRow {
+  kind: TxKind;
+  amount: number;
+  occurredOn: string;
+  categoryName: string;
+  party: string;
+  note: string;
+  method: Method;
+  reference: string;
+  port: string;
+  goodsName: string;
+  goodsType: string;
+  containerNo: string;
+  containerSize: string;
+  carrier: string;
+  details: Record<string, number>;
+  sourceKey: string;
 }
 
 const TX_SELECT = `
   SELECT t.id, t.kind, t.amount, t.occurred_on AS occurredOn,
          t.category_id AS categoryId, c.name AS categoryName, c.color AS categoryColor,
-         t.party, t.note, t.method, t.created_at AS createdAt, t.updated_at AS updatedAt
+         t.party, t.note, t.method, t.reference, t.port,
+         t.goods_name AS goodsName, t.goods_type AS goodsType,
+         t.container_no AS containerNo, t.container_size AS containerSize,
+         t.carrier, t.details_json AS detailsJson,
+         t.created_at AS createdAt, t.updated_at AS updatedAt
   FROM transactions t
   JOIN categories c ON c.id = t.category_id
 `;
@@ -112,6 +146,15 @@ export class Store {
         party TEXT NOT NULL DEFAULT '',
         note TEXT NOT NULL DEFAULT '',
         method TEXT NOT NULL DEFAULT 'cash',
+        reference TEXT NOT NULL DEFAULT '',
+        port TEXT NOT NULL DEFAULT '',
+        goods_name TEXT NOT NULL DEFAULT '',
+        goods_type TEXT NOT NULL DEFAULT '',
+        container_no TEXT NOT NULL DEFAULT '',
+        container_size TEXT NOT NULL DEFAULT '',
+        carrier TEXT NOT NULL DEFAULT '',
+        details_json TEXT NOT NULL DEFAULT '{}',
+        source_key TEXT,
         created_at TEXT NOT NULL DEFAULT (datetime('now')),
         updated_at TEXT NOT NULL DEFAULT (datetime('now'))
       );
@@ -124,15 +167,41 @@ export class Store {
         key TEXT PRIMARY KEY,
         value TEXT NOT NULL
       );
-
-      PRAGMA user_version = 1;
     `);
+    this.migrateLegacySchema(db);
     const count = db.prepare('SELECT COUNT(*) AS count FROM categories').get() as { count: number };
     if (count.count === 0) {
       const insert = db.prepare('INSERT INTO categories (name, kind, color) VALUES (?, ?, ?)');
       for (const category of SEED_CATEGORIES) insert.run(category.name, category.kind, category.color);
     }
     return db;
+  }
+
+  private migrateLegacySchema(db: DatabaseSync): void {
+    const columns = new Set(
+      (db.prepare('PRAGMA table_info(transactions)').all() as unknown as { name: string }[]).map(
+        (column) => column.name,
+      ),
+    );
+    const additions: [string, string][] = [
+      ['reference', "reference TEXT NOT NULL DEFAULT ''"],
+      ['port', "port TEXT NOT NULL DEFAULT ''"],
+      ['goods_name', "goods_name TEXT NOT NULL DEFAULT ''"],
+      ['goods_type', "goods_type TEXT NOT NULL DEFAULT ''"],
+      ['container_no', "container_no TEXT NOT NULL DEFAULT ''"],
+      ['container_size', "container_size TEXT NOT NULL DEFAULT ''"],
+      ['carrier', "carrier TEXT NOT NULL DEFAULT ''"],
+      ['details_json', "details_json TEXT NOT NULL DEFAULT '{}'"],
+      ['source_key', 'source_key TEXT'],
+    ];
+    for (const [name, definition] of additions) {
+      if (!columns.has(name)) db.exec(`ALTER TABLE transactions ADD COLUMN ${definition}`);
+    }
+    db.exec(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_tx_source_key
+        ON transactions(source_key) WHERE source_key IS NOT NULL;
+      PRAGMA user_version = 3;
+    `);
   }
 
   close(): void {
@@ -144,7 +213,19 @@ export class Store {
   }
 
   private toTransaction(row: unknown): Transaction {
-    return row as RawTxRow;
+    const { detailsJson, ...rest } = row as RawTxRow;
+    let details: Record<string, number> = {};
+    try {
+      const parsed = JSON.parse(detailsJson || '{}') as unknown;
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        for (const [label, value] of Object.entries(parsed)) {
+          if (typeof value === 'number' && Number.isFinite(value)) details[label] = value;
+        }
+      }
+    } catch {
+      details = {};
+    }
+    return { ...rest, details };
   }
 
   private categoryById(id: number): Category | undefined {
@@ -225,8 +306,13 @@ export class Store {
     }
     if (filter.q) {
       const query = `%${escapeLike(filter.q)}%`;
-      parts.push("(t.party LIKE ? ESCAPE '\\' OR t.note LIKE ? ESCAPE '\\')");
-      params.push(query, query);
+      parts.push(
+        `(t.party LIKE ? ESCAPE '\\' OR t.note LIKE ? ESCAPE '\\' OR t.reference LIKE ? ESCAPE '\\'
+          OR t.port LIKE ? ESCAPE '\\' OR t.goods_name LIKE ? ESCAPE '\\'
+          OR t.goods_type LIKE ? ESCAPE '\\' OR t.container_no LIKE ? ESCAPE '\\'
+          OR t.container_size LIKE ? ESCAPE '\\' OR t.carrier LIKE ? ESCAPE '\\')`,
+      );
+      params.push(query, query, query, query, query, query, query, query, query);
     }
     return { clause: parts.length ? `WHERE ${parts.join(' AND ')}` : '', params };
   }
@@ -278,10 +364,28 @@ export class Store {
     this.ensureCategoryMatches(input.categoryId, input.kind);
     const result = this.db
       .prepare(
-        `INSERT INTO transactions (kind, amount, occurred_on, category_id, party, note, method)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO transactions
+           (kind, amount, occurred_on, category_id, party, note, method,
+            reference, port, goods_name, goods_type, container_no, container_size, carrier, details_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(input.kind, input.amount, input.occurredOn, input.categoryId, input.party, input.note, input.method);
+      .run(
+        input.kind,
+        input.amount,
+        input.occurredOn,
+        input.categoryId,
+        input.party,
+        input.note,
+        input.method,
+        input.reference,
+        input.port,
+        input.goodsName,
+        input.goodsType,
+        input.containerNo,
+        input.containerSize,
+        input.carrier,
+        JSON.stringify(input.details),
+      );
     return this.getTransaction(Number(result.lastInsertRowid))!;
   }
 
@@ -293,16 +397,111 @@ export class Store {
       .prepare(
         `UPDATE transactions
          SET kind = ?, amount = ?, occurred_on = ?, category_id = ?, party = ?, note = ?, method = ?,
-             updated_at = datetime('now')
+             reference = ?, port = ?, goods_name = ?, goods_type = ?, container_no = ?,
+             container_size = ?, carrier = ?, details_json = ?, updated_at = datetime('now')
          WHERE id = ?`,
       )
-      .run(input.kind, input.amount, input.occurredOn, input.categoryId, input.party, input.note, input.method, id);
+      .run(
+        input.kind,
+        input.amount,
+        input.occurredOn,
+        input.categoryId,
+        input.party,
+        input.note,
+        input.method,
+        input.reference,
+        input.port,
+        input.goodsName,
+        input.goodsType,
+        input.containerNo,
+        input.containerSize,
+        input.carrier,
+        JSON.stringify(input.details),
+        id,
+      );
     return this.getTransaction(id)!;
   }
 
   removeTransaction(id: number): void {
     const result = this.db.prepare('DELETE FROM transactions WHERE id = ?').run(id);
     if (Number(result.changes) === 0) throw new Error('Không tìm thấy giao dịch.');
+  }
+
+  hasSourceKey(sourceKey: string): boolean {
+    if (!sourceKey) return false;
+    return Boolean(this.db.prepare('SELECT 1 FROM transactions WHERE source_key = ?').get(sourceKey));
+  }
+
+  importRows(rows: ImportTransactionRow[]): ImportResult {
+    const findCategory = this.db.prepare(
+      'SELECT id FROM categories WHERE kind = ? AND name = ? COLLATE NOCASE',
+    );
+    const insertCategory = this.db.prepare('INSERT INTO categories (name, kind, color) VALUES (?, ?, ?)');
+    const findSource = this.db.prepare('SELECT 1 FROM transactions WHERE source_key = ?');
+    const insert = this.db.prepare(
+      `INSERT INTO transactions
+         (kind, amount, occurred_on, category_id, party, note, method,
+          reference, port, goods_name, goods_type, container_no, container_size, carrier, details_json, source_key)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    );
+
+    let income = 0;
+    let expense = 0;
+    let inserted = 0;
+    let duplicates = 0;
+    let skipped = 0;
+    let categoriesCreated = 0;
+    const seen = new Set<string>();
+
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      for (const row of rows) {
+        if (!row.occurredOn || row.amount <= 0 || !row.categoryName.trim()) {
+          skipped += 1;
+          continue;
+        }
+        if (row.sourceKey) {
+          if (seen.has(row.sourceKey) || findSource.get(row.sourceKey)) {
+            duplicates += 1;
+            continue;
+          }
+          seen.add(row.sourceKey);
+        }
+        let category = findCategory.get(row.kind, row.categoryName.trim()) as { id: number } | undefined;
+        if (!category) {
+          const color = row.kind === 'income' ? '#177245' : '#B42318';
+          const result = insertCategory.run(row.categoryName.trim(), row.kind, color);
+          category = { id: Number(result.lastInsertRowid) };
+          categoriesCreated += 1;
+        }
+        insert.run(
+          row.kind,
+          row.amount,
+          row.occurredOn,
+          category.id,
+          row.party,
+          row.note,
+          row.method,
+          row.reference,
+          row.port,
+          row.goodsName,
+          row.goodsType,
+          row.containerNo,
+          row.containerSize,
+          row.carrier,
+          JSON.stringify(row.details),
+          row.sourceKey || null,
+        );
+        inserted += 1;
+        if (row.kind === 'income') income += row.amount;
+        else expense += row.amount;
+      }
+      this.db.exec('COMMIT');
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
+    return { income, expense, inserted, duplicates, skipped, categoriesCreated };
   }
 
   private summary(from: string, to: string): { income: number; expense: number; count: number } {
@@ -417,6 +616,34 @@ export class Store {
       )
       .run(settings.companyName);
     return this.getSettings();
+  }
+
+  getTheme(): ThemeSettings {
+    const row = this.db.prepare("SELECT value FROM app_settings WHERE key = 'theme'").get() as
+      | { value: string }
+      | undefined;
+    if (!row) return { preset: DEFAULT_THEME.preset, colors: { ...DEFAULT_THEME.colors } };
+    try {
+      const parsed = JSON.parse(row.value) as ThemeSettings;
+      if (parsed.preset !== 'custom') {
+        const preset = getThemePreset(parsed.preset);
+        if (preset) return { preset: preset.id, colors: { ...preset.colors } };
+        return { preset: DEFAULT_THEME.preset, colors: { ...DEFAULT_THEME.colors } };
+      }
+      return { preset: 'custom', colors: { ...DEFAULT_THEME.colors, ...parsed.colors } };
+    } catch {
+      return { preset: DEFAULT_THEME.preset, colors: { ...DEFAULT_THEME.colors } };
+    }
+  }
+
+  saveTheme(theme: ThemeSettings): ThemeSettings {
+    this.db
+      .prepare(
+        `INSERT INTO app_settings (key, value) VALUES ('theme', ?)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+      )
+      .run(JSON.stringify(theme));
+    return this.getTheme();
   }
 
   stats(): DataStats {

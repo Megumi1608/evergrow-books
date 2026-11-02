@@ -2,17 +2,6 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronDown, LoaderCircle, X } from 'lucide-react';
 
-export function Logo({ size = 34 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 32 32" aria-hidden="true">
-      <rect width="32" height="32" rx="9.5" fill="#1E5B45" />
-      <rect x="7.6" y="17.6" width="3.6" height="7.8" rx="1.8" fill="#F4F0E5" />
-      <rect x="14.2" y="12.8" width="3.6" height="12.6" rx="1.8" fill="#F4F0E5" />
-      <rect x="20.8" y="8.4" width="3.6" height="17" rx="1.8" fill="#F4F0E5" />
-    </svg>
-  );
-}
-
 export function PageHeader({
   title,
   subtitle,
@@ -226,7 +215,7 @@ export function StatCard({
   label: string;
   value: string;
   foot?: ReactNode;
-  tone?: 'neutral' | 'income' | 'expense' | 'net';
+  tone?: 'neutral' | 'income' | 'expense' | 'net' | 'warning';
   icon?: ReactNode;
 }) {
   return (

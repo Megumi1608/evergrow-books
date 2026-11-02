@@ -4,7 +4,7 @@ import { METHOD_LABELS } from '../../shared/types';
 import { formatDate, todayIso } from '../../shared/dates';
 import { formatNumber, formatSignedVnd } from '../../shared/format';
 import { api, getErrorMessage } from '../api';
-import { Logo } from '../components/ui';
+import { LOGO_LOCKUP } from '../../shared/brand';
 
 export function PrintReport({ params }: { params: URLSearchParams }) {
   const from = params.get('from') ?? '';
@@ -74,8 +74,8 @@ export function PrintReport({ params }: { params: URLSearchParams }) {
       <article className="print-sheet">
         <header className="print-head">
           <div className="print-brand">
-            <Logo size={30} />
-            <div>
+            <img className="print-logo" src={LOGO_LOCKUP} alt="Evergrow" />
+            <div className="print-company">
               <strong>{company}</strong>
               <span>Sổ thu chi doanh nghiệp</span>
             </div>
@@ -164,9 +164,10 @@ export function PrintReport({ params }: { params: URLSearchParams }) {
             <thead>
               <tr>
                 <th>Ngày</th>
+                <th>Số TK</th>
                 <th>Loại</th>
                 <th>Danh mục</th>
-                <th>Đối tác / ghi chú</th>
+                <th>Đối tác / hàng hóa</th>
                 <th>Hình thức</th>
                 <th className="num">Số tiền</th>
               </tr>
@@ -175,10 +176,17 @@ export function PrintReport({ params }: { params: URLSearchParams }) {
               {report.transactions.map((transaction) => (
                 <tr key={transaction.id}>
                   <td>{formatDate(transaction.occurredOn)}</td>
+                  <td>{transaction.reference || '—'}</td>
                   <td>{transaction.kind === 'income' ? 'Thu' : 'Chi'}</td>
                   <td>{transaction.categoryName}</td>
                   <td>
                     {transaction.party || '—'}
+                    {transaction.containerNo ? (
+                      <span className="print-note"> · Cont {transaction.containerNo}</span>
+                    ) : null}
+                    {transaction.containerSize ? (
+                      <span className="print-note"> · {transaction.containerSize}</span>
+                    ) : null}
                     {transaction.note ? <span className="print-note"> · {transaction.note}</span> : null}
                   </td>
                   <td>{METHOD_LABELS[transaction.method]}</td>

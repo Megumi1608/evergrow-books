@@ -7,18 +7,20 @@ import {
   Info,
   LayoutDashboard,
   LoaderCircle,
+  Palette,
   RefreshCw,
   Settings,
   Tags,
 } from 'lucide-react';
 import type { UpdateState } from '../../shared/types';
-import { Logo } from './ui';
+import { LOGO_LEAF, LOGO_WORDMARK } from '../../shared/brand';
 
 const NAV = [
   { path: '/dashboard', label: 'Tổng quan', icon: LayoutDashboard },
   { path: '/transactions', label: 'Giao dịch', icon: ArrowLeftRight },
   { path: '/categories', label: 'Danh mục', icon: Tags },
   { path: '/reports', label: 'Báo cáo', icon: ChartColumn },
+  { path: '/appearance', label: 'Giao diện', icon: Palette },
   { path: '/settings', label: 'Cài đặt', icon: Settings },
 ];
 
@@ -37,7 +39,7 @@ function updateSummary(state: UpdateState): { label: string; icon: React.ReactNo
     case 'downloaded':
       return { label: 'Bản mới sẵn sàng', icon: <Download size={13} />, tone: 'accent' };
     case 'up-to-date':
-      return { label: 'Đã là bản mới nhất', icon: <Check size={13} />, tone: 'muted' };
+      return { label: 'Đã là bản mới nhất', icon: <Check size={13} />, tone: 'ok' };
     case 'error':
       return { label: 'Cập nhật gặp lỗi', icon: <CircleAlert size={13} />, tone: 'danger' };
     case 'unsupported':
@@ -64,9 +66,9 @@ export function Sidebar({
   return (
     <aside className="sidebar">
       <a className="brand" href="#/dashboard">
-        <Logo />
+        <img className="brand-leaf" src={LOGO_LEAF} alt="" />
         <span className="brand-text">
-          <span className="brand-name">Evergrow</span>
+          <img className="brand-wordmark" src={LOGO_WORDMARK} alt="Evergrow" />
           <span className="brand-sub">Sổ thu chi</span>
         </span>
       </a>

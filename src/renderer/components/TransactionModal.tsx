@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { LoaderCircle } from 'lucide-react';
+import { ChevronDown, LoaderCircle } from 'lucide-react';
 import type { Category, Method, Transaction, TxInput, TxKind } from '../../shared/types';
 import { METHOD_LABELS } from '../../shared/types';
 import { todayIso } from '../../shared/dates';
@@ -29,6 +29,24 @@ export function TransactionModal({
   const [method, setMethod] = useState<Method>(transaction?.method ?? 'bank');
   const [party, setParty] = useState(transaction?.party ?? '');
   const [note, setNote] = useState(transaction?.note ?? '');
+  const [reference, setReference] = useState(transaction?.reference ?? '');
+  const [port, setPort] = useState(transaction?.port ?? '');
+  const [goodsName, setGoodsName] = useState(transaction?.goodsName ?? '');
+  const [goodsType, setGoodsType] = useState(transaction?.goodsType ?? '');
+  const [containerNo, setContainerNo] = useState(transaction?.containerNo ?? '');
+  const [containerSize, setContainerSize] = useState(transaction?.containerSize ?? '');
+  const [carrier, setCarrier] = useState(transaction?.carrier ?? '');
+  const [showExtras, setShowExtras] = useState(
+    Boolean(
+      transaction?.reference ||
+        transaction?.port ||
+        transaction?.goodsName ||
+        transaction?.goodsType ||
+        transaction?.containerNo ||
+        transaction?.containerSize ||
+        transaction?.carrier,
+    ),
+  );
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -76,7 +94,23 @@ export function TransactionModal({
       setError('Chọn danh mục cho giao dịch.');
       return;
     }
-    const input: TxInput = { kind, amount, occurredOn, categoryId, party, note, method };
+    const input: TxInput = {
+      kind,
+      amount,
+      occurredOn,
+      categoryId,
+      party,
+      note,
+      method,
+      reference,
+      port,
+      goodsName,
+      goodsType,
+      containerNo,
+      containerSize,
+      carrier,
+      details: transaction?.details ?? {},
+    };
     setSaving(true);
     try {
       const saved = transaction
@@ -197,6 +231,112 @@ export function TransactionModal({
             onChange={(event) => setNote(event.target.value)}
           />
         </label>
+
+        <button
+          type="button"
+          className={`section-toggle${showExtras ? ' open' : ''}`}
+          onClick={() => setShowExtras((value) => !value)}
+          aria-expanded={showExtras}
+        >
+          <span>Thông tin vận đơn</span>
+          <span className="section-toggle-hint">Không bắt buộc</span>
+          <ChevronDown size={15} />
+        </button>
+
+        {showExtras ? (
+          <div className="form-extra">
+            <div className="form-row">
+              <label className="field">
+                <span className="field-label">Số tờ khai</span>
+                <input
+                  className="input"
+                  value={reference}
+                  maxLength={80}
+                  placeholder="VD: 108674195011"
+                  onChange={(event) => setReference(event.target.value)}
+                />
+              </label>
+              <label className="field">
+                <span className="field-label">Cửa khẩu</span>
+                <input
+                  className="input"
+                  value={port}
+                  maxLength={80}
+                  placeholder="VD: 15, HP"
+                  onChange={(event) => setPort(event.target.value)}
+                />
+              </label>
+            </div>
+            <div className="form-row">
+              <label className="field">
+                <span className="field-label">Tên hàng</span>
+                <input
+                  className="input"
+                  value={goodsName}
+                  maxLength={160}
+                  placeholder="VD: DOF LTD"
+                  onChange={(event) => setGoodsName(event.target.value)}
+                />
+              </label>
+              <label className="field">
+                <span className="field-label">Loại hàng</span>
+                <input
+                  className="input"
+                  value={goodsType}
+                  maxLength={80}
+                  placeholder="VD: Phân bón"
+                  onChange={(event) => setGoodsType(event.target.value)}
+                />
+              </label>
+            </div>
+            <div className="form-row">
+              <label className="field">
+                <span className="field-label">Số container</span>
+                <input
+                  className="input"
+                  value={containerNo}
+                  maxLength={80}
+                  placeholder="VD: FCIU5956792"
+                  onChange={(event) => setContainerNo(event.target.value)}
+                />
+              </label>
+              <label className="field">
+                <span className="field-label">Kích thước cont</span>
+                <input
+                  className="input"
+                  value={containerSize}
+                  maxLength={80}
+                  placeholder="VD: 20' ×1 · 40' ×1"
+                  onChange={(event) => setContainerSize(event.target.value)}
+                />
+              </label>
+            </div>
+            <label className="field">
+              <span className="field-label">Đơn vị vận chuyển</span>
+              <input
+                className="input"
+                value={carrier}
+                maxLength={120}
+                placeholder="VD: Khôi Đạt"
+                onChange={(event) => setCarrier(event.target.value)}
+              />
+            </label>
+          </div>
+        ) : null}
+
+        {transaction && Object.keys(transaction.details).length > 0 ? (
+          <div className="detail-list">
+            <span className="field-label">Chi tiết phí (nhập từ Excel)</span>
+            <div className="detail-rows">
+              {Object.entries(transaction.details).map(([label, value]) => (
+                <div className="detail-row" key={label}>
+                  <span>{label}</span>
+                  <strong>{formatNumber(value)} đ</strong>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
 
         {error ? <p className="form-error">{error}</p> : null}
       </form>

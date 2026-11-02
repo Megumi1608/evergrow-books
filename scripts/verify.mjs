@@ -116,7 +116,7 @@ for (const format of ['csv', 'xlsx', 'pdf']) {
 }
 
 const csv = fs.readFileSync(path.join(exportDir, 'giao-dich-kiem-tra.csv'), 'utf8');
-assert(csv.includes('Ngày,Loại,Danh mục,Số tiền (VND)'), 'CSV có tiêu đề đúng');
+assert(csv.includes('STT,Ngày,Loại,Số TK,Cửa,Đối tác'), 'CSV có tiêu đề chuẩn hóa');
 const xlsxHead = fs.readFileSync(path.join(exportDir, 'giao-dich-kiem-tra.xlsx')).subarray(0, 2).toString();
 assert(xlsxHead === 'PK', 'XLSX là tệp zip hợp lệ');
 const pdfHead = fs.readFileSync(path.join(exportDir, 'giao-dich-kiem-tra.pdf')).subarray(0, 4).toString();

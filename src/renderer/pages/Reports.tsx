@@ -183,7 +183,7 @@ export function ReportsPage() {
         <StatCard
           label="Chênh lệch"
           value={formatSignedVnd(data?.net ?? 0)}
-          tone="net"
+          tone={(data?.net ?? 0) >= 0 ? 'warning' : 'expense'}
           icon={<Wallet size={16} />}
           foot="Thu nhập trừ chi phí"
         />
@@ -292,7 +292,7 @@ function BreakdownTable({
                 <tr key={`${item.name}-${item.color}`}>
                   <td>
                     <span className="cat-cell">
-                      <i className="dot" style={{ background: item.color }} />
+                      <i className="dot" />
                       {item.name}
                     </span>
                     <span className="breakdown-count">{item.count} giao dịch</span>

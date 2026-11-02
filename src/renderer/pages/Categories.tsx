@@ -21,19 +21,6 @@ import {
   Segmented,
 } from '../components/ui';
 
-const PALETTE = [
-  '#1E5B45',
-  '#2F6B4F',
-  '#3D7C8A',
-  '#4E6E81',
-  '#7A6A3A',
-  '#B0763A',
-  '#A44A2A',
-  '#8C5A6B',
-  '#55624C',
-  '#6B7280',
-];
-
 const KIND_LABEL: Record<TxKind, string> = { income: 'Thu nhập', expense: 'Chi phí' };
 
 export function CategoriesPage() {
@@ -196,7 +183,7 @@ function CategoryPanel({
         {categories.map((category) => (
           <div className="cat-item" key={category.id}>
             <span className="cat-name">
-              <i className="dot" style={{ background: category.color }} />
+              <i className="dot" />
               {category.name}
             </span>
             <span className="cat-usage">{category.usageCount} giao dịch</span>
@@ -244,7 +231,6 @@ function CategoryModal({
   const toast = useToast();
   const [name, setName] = useState(category?.name ?? '');
   const [kind, setKind] = useState<TxKind>(category?.kind ?? 'expense');
-  const [color, setColor] = useState(category?.color ?? PALETTE[3]);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -257,6 +243,7 @@ function CategoryModal({
     setSaving(true);
     setError('');
     try {
+      const color = kind === 'income' ? '#177245' : '#B42318';
       if (category) {
         await api.categories.update(category.id, { name, kind, color });
         toast('Đã cập nhật danh mục.');
@@ -322,23 +309,6 @@ function CategoryModal({
             />
           </div>
         )}
-
-        <div className="field">
-          <span className="field-label">Màu nhận diện</span>
-          <div className="swatches">
-            {PALETTE.map((swatch) => (
-              <button
-                key={swatch}
-                type="button"
-                className={`swatch${color.toUpperCase() === swatch ? ' selected' : ''}`}
-                style={{ background: swatch }}
-                aria-label={`Chọn màu ${swatch}`}
-                aria-pressed={color.toUpperCase() === swatch}
-                onClick={() => setColor(swatch)}
-              />
-            ))}
-          </div>
-        </div>
 
         {error ? <p className="form-error">{error}</p> : null}
       </form>

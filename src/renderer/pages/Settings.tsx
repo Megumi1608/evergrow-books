@@ -13,11 +13,12 @@ import {
   Trash,
 } from 'lucide-react';
 import type { DataStats } from '../../shared/types';
+import { LOGO_LOCKUP } from '../../shared/brand';
 import { formatNumber } from '../../shared/format';
 import { api, getErrorMessage } from '../api';
 import { useApp } from '../context';
 import { useToast } from '../components/toast';
-import { ConfirmDialog, Logo, PageHeader, ProgressBar } from '../components/ui';
+import { ConfirmDialog, PageHeader, ProgressBar } from '../components/ui';
 
 type BusyAction = 'backup' | 'restore' | 'seed' | null;
 
@@ -337,7 +338,7 @@ export function SettingsPage() {
 
           <section className="card about-card">
             <div className="about-brand">
-              <Logo size={40} />
+              <img className="about-logo" src={LOGO_LOCKUP} alt="Evergrow" />
               <div>
                 <h2>Evergrow Books</h2>
                 <p>Sổ thu chi doanh nghiệp</p>

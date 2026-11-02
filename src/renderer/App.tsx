@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { ThemeSettings } from '../shared/theme';
 import type { AppMeta, Transaction, UpdateState } from '../shared/types';
 import { AppContext } from './context';
 import { api, getErrorMessage } from './api';
+import { applyTheme, cacheTheme, readCachedTheme } from './theme';
 import { useHashRoute, type Route } from './hooks';
 import { useToast } from './components/toast';
 import { Sidebar } from './components/Sidebar';
@@ -10,6 +12,7 @@ import { DashboardPage } from './pages/Dashboard';
 import { TransactionsPage } from './pages/Transactions';
 import { CategoriesPage } from './pages/Categories';
 import { ReportsPage } from './pages/Reports';
+import { AppearancePage } from './pages/Appearance';
 import { SettingsPage } from './pages/Settings';
 import { PrintReport } from './pages/PrintReport';
 
@@ -23,6 +26,7 @@ function Shell({ route }: { route: Route }) {
   const toast = useToast();
   const [meta, setMeta] = useState<AppMeta | null>(null);
   const [companyName, setCompanyName] = useState('Công ty của bạn');
+  const [theme, setTheme] = useState<ThemeSettings>(readCachedTheme);
   const [revision, setRevision] = useState(0);
   const [updateState, setUpdateState] = useState<UpdateState>({ status: 'idle' });
   const [modal, setModal] = useState<{ transaction: Transaction | null } | null>(null);
@@ -41,7 +45,31 @@ function Shell({ route }: { route: Route }) {
   useEffect(() => {
     api.getMeta().then(setMeta).catch((error) => toast(getErrorMessage(error), 'error'));
     reloadSettings().catch((error) => toast(getErrorMessage(error), 'error'));
+    api.theme
+      .get()
+      .then((saved) => {
+        setTheme(saved);
+        applyTheme(saved);
+        cacheTheme(saved);
+      })
+      .catch((error) => toast(getErrorMessage(error), 'error'));
   }, [reloadSettings, toast]);
+
+  useEffect(() => {
+    applyTheme(theme);
+  }, [theme]);
+
+  const previewTheme = useCallback((next: ThemeSettings) => {
+    applyTheme(next);
+  }, []);
+
+  const saveTheme = useCallback(async (next: ThemeSettings) => {
+    const saved = await api.theme.save(next);
+    setTheme(saved);
+    applyTheme(saved);
+    cacheTheme(saved);
+    return saved;
+  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -66,13 +94,27 @@ function Shell({ route }: { route: Route }) {
     () => ({
       meta,
       companyName,
+      theme,
       revision,
       updateState,
       bump,
       reloadSettings,
+      previewTheme,
+      saveTheme,
       openTransaction,
     }),
-    [meta, companyName, revision, updateState, bump, reloadSettings, openTransaction],
+    [
+      meta,
+      companyName,
+      theme,
+      revision,
+      updateState,
+      bump,
+      reloadSettings,
+      previewTheme,
+      saveTheme,
+      openTransaction,
+    ],
   );
 
   return (
@@ -111,6 +153,8 @@ function renderPage(path: string) {
       return <CategoriesPage />;
     case '/reports':
       return <ReportsPage />;
+    case '/appearance':
+      return <AppearancePage />;
     case '/settings':
       return <SettingsPage />;
     default:

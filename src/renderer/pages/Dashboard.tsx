@@ -19,6 +19,7 @@ import { useApp } from '../context';
 import { useToast } from '../components/toast';
 import { CategoryBars, MoneyChart } from '../components/charts';
 import { EmptyState, PageHeader, PageLoading, StatCard } from '../components/ui';
+import { transactionMeta, transactionTitle } from '../transactionText';
 
 export function DashboardPage() {
   const { revision, bump, openTransaction } = useApp();
@@ -132,7 +133,7 @@ export function DashboardPage() {
         <StatCard
           label="Chênh lệch"
           value={formatSignedVnd(data?.net ?? 0)}
-          tone="net"
+          tone={(data?.net ?? 0) >= 0 ? 'warning' : 'expense'}
           icon={<Wallet size={16} />}
           foot="Thu nhập trừ chi phí"
         />
@@ -225,13 +226,15 @@ export function DashboardPage() {
                     <td className="date-cell">{formatDate(transaction.occurredOn)}</td>
                     <td>
                       <span className="cat-cell">
-                        <i className="dot" style={{ background: transaction.categoryColor }} />
+                        <i className="dot" />
                         {transaction.categoryName}
                       </span>
                     </td>
                     <td>
-                      <div className="tx-main">{transaction.party || transaction.note || '—'}</div>
-                      {transaction.party && transaction.note ? <div className="tx-sub">{transaction.note}</div> : null}
+                      <div className="tx-main">{transactionTitle(transaction)}</div>
+                      {transactionMeta(transaction) ? (
+                        <div className="tx-sub">{transactionMeta(transaction)}</div>
+                      ) : null}
                     </td>
                     <td className={`num amount ${transaction.kind === 'income' ? 'income' : 'expense'}`}>
                       {transaction.kind === 'income' ? '+' : '−'}

@@ -1,3 +1,5 @@
+import type { ThemeSettings } from './theme';
+
 export type TxKind = 'income' | 'expense';
 
 export const METHODS = ['cash', 'bank', 'card', 'ewallet', 'other'] as const;
@@ -36,6 +38,14 @@ export interface Transaction {
   party: string;
   note: string;
   method: Method;
+  reference: string;
+  port: string;
+  goodsName: string;
+  goodsType: string;
+  containerNo: string;
+  containerSize: string;
+  carrier: string;
+  details: Record<string, number>;
   createdAt: string;
   updatedAt: string;
 }
@@ -48,6 +58,14 @@ export interface TxInput {
   party: string;
   note: string;
   method: Method;
+  reference: string;
+  port: string;
+  goodsName: string;
+  goodsType: string;
+  containerNo: string;
+  containerSize: string;
+  carrier: string;
+  details: Record<string, number>;
 }
 
 export interface TxFilter {
@@ -148,8 +166,77 @@ export interface UpdateState {
   checkedAt?: string;
 }
 
+export type MissingDatePolicy = 'previous' | 'skip';
+
+export interface ImportPreviewRow {
+  kind: TxKind;
+  date: string;
+  amount: number;
+  party: string;
+  category: string;
+  reference: string;
+  port: string;
+  goodsName: string;
+  goodsType: string;
+  containerNo: string;
+  containerSize: string;
+  carrier: string;
+  note: string;
+  details: Record<string, number>;
+}
+
+export interface ImportSheetSummary {
+  name: string;
+  kind: TxKind;
+  rows: number;
+  skipped: number;
+  total: number;
+  from: string;
+  to: string;
+}
+
+export interface ImportWarning {
+  sheet: string;
+  row: number;
+  message: string;
+}
+
+export interface ImportPreview {
+  token: string;
+  fileName: string;
+  sheets: ImportSheetSummary[];
+  samples: ImportPreviewRow[];
+  income: number;
+  expense: number;
+  rows: number;
+  duplicates: number;
+  missingDates: number;
+  warnings: ImportWarning[];
+  categories: string[];
+}
+
+export interface ImportPreviewResult {
+  canceled: boolean;
+  preview?: ImportPreview;
+}
+
+export interface ImportCommitOptions {
+  missingDate: MissingDatePolicy;
+  method: Method;
+}
+
+export interface ImportResult {
+  income: number;
+  expense: number;
+  inserted: number;
+  duplicates: number;
+  skipped: number;
+  categoriesCreated: number;
+}
+
 export interface EvergrowApi {
   getMeta(): Promise<AppMeta>;
+  setWindowChrome(input: { background: string; symbol: string }): Promise<void>;
   dashboard(month: string): Promise<DashboardData>;
   transactions: {
     list(filter: TxFilter): Promise<TxPage>;
@@ -167,8 +254,16 @@ export interface EvergrowApi {
     get(): Promise<CompanySettings>;
     save(input: CompanySettings): Promise<CompanySettings>;
   };
+  theme: {
+    get(): Promise<ThemeSettings>;
+    save(input: ThemeSettings): Promise<ThemeSettings>;
+  };
   report(range: { from: string; to: string }): Promise<ReportData>;
   exportFile(format: 'csv' | 'xlsx' | 'pdf', filter: TxFilter): Promise<ExportResult>;
+  importFile: {
+    preview(): Promise<ImportPreviewResult>;
+    commit(token: string, options: ImportCommitOptions): Promise<ImportResult>;
+  };
   data: {
     backup(): Promise<ExportResult>;
     restore(): Promise<{ restored: boolean }>;

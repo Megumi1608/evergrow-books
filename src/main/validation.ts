@@ -2,11 +2,19 @@ import {
   METHODS,
   type CategoryInput,
   type CompanySettings,
+  type ImportCommitOptions,
   type Method,
+  type MissingDatePolicy,
   type TxFilter,
   type TxInput,
   type TxKind,
 } from '../shared/types';
+import {
+  THEME_COLOR_KEYS,
+  THEME_PRESETS,
+  type ThemeColors,
+  type ThemeSettings,
+} from '../shared/theme';
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const MONTH_RE = /^\d{4}-\d{2}$/;
@@ -65,8 +73,23 @@ function method(value: unknown): Method {
 }
 
 function color(value: unknown): string {
-  if (typeof value !== 'string' || !/^#[0-9a-fA-F]{6}$/.test(value)) fail('Màu danh mục không hợp lệ.');
+  if (typeof value !== 'string' || !/^#[0-9a-fA-F]{6}$/.test(value)) fail('Màu không hợp lệ.');
   return value.toUpperCase();
+}
+
+function details(value: unknown): Record<string, number> {
+  if (value === undefined || value === null) return {};
+  const input = asRecord(value, 'Chi tiết phí');
+  const entries = Object.entries(input);
+  if (entries.length > 30) fail('Chi tiết phí có quá nhiều mục.');
+  const result: Record<string, number> = {};
+  for (const [rawLabel, rawValue] of entries) {
+    const label = rawLabel.trim();
+    if (!label || label.length > 50) fail('Tên mục trong chi tiết phí không hợp lệ.');
+    if (typeof rawValue !== 'number' || !Number.isFinite(rawValue)) fail('Giá trị chi tiết phí không hợp lệ.');
+    result[label] = Math.round(rawValue);
+  }
+  return result;
 }
 
 export function validateTxInput(value: unknown): TxInput {
@@ -76,16 +99,22 @@ export function validateTxInput(value: unknown): TxInput {
     fail('Số tiền phải là số nguyên dương.');
   }
   if (amount > MAX_AMOUNT) fail('Số tiền vượt quá giới hạn cho phép.');
-  const party = text(input.party, 'Đối tác', 160);
-  const note = text(input.note, 'Ghi chú', 500);
   return {
     kind: kind(input.kind),
     amount,
     occurredOn: validateDate(input.occurredOn, 'Ngày giao dịch'),
     categoryId: validateId(input.categoryId, 'Danh mục'),
-    party,
-    note,
+    party: text(input.party, 'Đối tác', 160),
+    note: text(input.note, 'Ghi chú', 500),
     method: method(input.method),
+    reference: text(input.reference, 'Số tờ khai', 80),
+    port: text(input.port, 'Cửa khẩu', 80),
+    goodsName: text(input.goodsName, 'Tên hàng', 160),
+    goodsType: text(input.goodsType, 'Loại hàng', 80),
+    containerNo: text(input.containerNo, 'Số container', 80),
+    containerSize: text(input.containerSize, 'Kích thước container', 80),
+    carrier: text(input.carrier, 'Đơn vị vận chuyển', 120),
+    details: details(input.details),
   };
 }
 
@@ -137,4 +166,35 @@ export function validateRange(value: unknown): { from: string; to: string } {
 export function validateConfirm(value: unknown): string {
   if (value !== 'XOA') fail('Cần nhập đúng "XOA" để xác nhận.');
   return value;
+}
+
+export function validateTheme(value: unknown): ThemeSettings {
+  const input = asRecord(value, 'Bộ màu');
+  const preset = input.preset;
+  if (preset !== 'custom') {
+    const found = THEME_PRESETS.find((item) => item.id === preset);
+    if (!found) fail('Bộ màu không hợp lệ.');
+    return { preset: found.id, colors: { ...found.colors } };
+  }
+  const rawColors = asRecord(input.colors, 'Màu giao diện');
+  const colors = {} as ThemeColors;
+  for (const key of THEME_COLOR_KEYS) {
+    colors[key] = color(rawColors[key]);
+  }
+  return { preset: 'custom', colors };
+}
+
+export function validateToken(value: unknown): string {
+  if (typeof value !== 'string' || !/^[a-zA-Z0-9-]{8,80}$/.test(value)) fail('Phiên nhập dữ liệu không hợp lệ.');
+  return value;
+}
+
+export function validateImportOptions(value: unknown): ImportCommitOptions {
+  const input = asRecord(value, 'Tuỳ chọn nhập');
+  const missingDate = input.missingDate;
+  if (missingDate !== 'previous' && missingDate !== 'skip') fail('Cách xử lý ngày thiếu không hợp lệ.');
+  return {
+    missingDate: missingDate as MissingDatePolicy,
+    method: method(input.method),
+  };
 }

@@ -83,7 +83,7 @@ export function MoneyChart({ data }: { data: MonthPoint[] }) {
                 width={barWidth}
                 height={Math.max(incomeHeight, point.income > 0 ? 2 : 0)}
                 rx={3}
-                fill="#1E5B45"
+                className="chart-bar income"
               >
                 <title>{`${formatMonthLabel(point.month)} · Thu ${formatVnd(point.income)}`}</title>
               </rect>
@@ -93,7 +93,7 @@ export function MoneyChart({ data }: { data: MonthPoint[] }) {
                 width={barWidth}
                 height={Math.max(expenseHeight, point.expense > 0 ? 2 : 0)}
                 rx={3}
-                fill="#A44A2A"
+                className="chart-bar expense"
               >
                 <title>{`${formatMonthLabel(point.month)} · Chi ${formatVnd(point.expense)}`}</title>
               </rect>
@@ -129,21 +129,21 @@ export function CategoryBars({
   }
   return (
     <div className="cat-bars">
-      {items.map((item) => {
+      {items.map((item, index) => {
         const percent = total === 0 ? 0 : (item.total / total) * 100;
         return (
-          <div className="cat-row" key={`${item.name}-${item.color}`}>
+          <div className="cat-row" key={`${item.name}-${index}`}>
             <div className="cat-row-top">
               <span className="cat-name">
-                <i className="dot" style={{ background: item.color }} />
+                <i className="dot" />
                 {item.name}
               </span>
-              <span className="cat-amount">{formatVnd(item.total)}</span>
+              <span className="cat-amount expense">{formatVnd(item.total)}</span>
             </div>
             <div className="bar-track">
               <div
                 className="bar-fill"
-                style={{ width: `${Math.max(percent, 2)}%`, background: item.color }}
+                style={{ width: `${Math.max(percent, 2)}%`, opacity: Math.max(0.35, 0.9 - index * 0.12) }}
               />
             </div>
             <div className="cat-meta">

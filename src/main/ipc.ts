@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { Store } from './db';
 import { buildCsv, periodLabel, writeXlsx } from './exporters';
+import { commitImport, previewImport } from './importer';
 import { checkForUpdates, getUpdateState, installUpdate, openReleases, RELEASES_URL } from './updater';
 import {
   validateCategoryInput,
@@ -10,8 +11,11 @@ import {
   validateConfirm,
   validateFilter,
   validateId,
+  validateImportOptions,
   validateMonth,
   validateRange,
+  validateTheme,
+  validateToken,
   validateTxInput,
 } from './validation';
 import { todayIso } from '../shared/dates';
@@ -76,6 +80,19 @@ export function registerIpc(deps: IpcDeps): void {
     releasesUrl: RELEASES_URL,
   }));
 
+  handle('window:chrome', (input: unknown) => {
+    const value = input as { background?: unknown; symbol?: unknown };
+    const background = typeof value?.background === 'string' ? value.background : '';
+    const symbol = typeof value?.symbol === 'string' ? value.symbol : '';
+    if (!/^#[0-9a-fA-F]{6}$/.test(background) || !/^#[0-9a-fA-F]{6}$/.test(symbol)) {
+      throw new Error('Màu thanh tiêu đề không hợp lệ.');
+    }
+    const win = getMainWindow();
+    if (win && process.platform === 'win32') {
+      win.setTitleBarOverlay({ color: background, symbolColor: symbol, height: 40 });
+    }
+  });
+
   handle('dashboard:get', (month: unknown) => store.dashboard(validateMonth(month)));
 
   handle('tx:list', (filter: unknown) => store.listTransactions(validateFilter(filter)));
@@ -94,6 +111,8 @@ export function registerIpc(deps: IpcDeps): void {
 
   handle('settings:get', () => store.getSettings());
   handle('settings:save', (input: unknown) => store.saveSettings(validateCompanySettings(input)));
+  handle('theme:get', () => store.getTheme());
+  handle('theme:save', (input: unknown) => store.saveTheme(validateTheme(input)));
 
   handle('report:get', (range: unknown) => {
     const { from, to } = validateRange(range);
@@ -181,6 +200,23 @@ export function registerIpc(deps: IpcDeps): void {
     await store.backupTo(file);
     return { saved: true, path: file };
   });
+
+  handle('import:preview', async () => {
+    const win = getMainWindow();
+    const options = {
+      title: 'Chọn tệp Excel thu chi',
+      filters: [{ name: 'Excel Workbook', extensions: ['xlsx'] }],
+      properties: ['openFile' as const],
+    };
+    const result = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options);
+    if (result.canceled || result.filePaths.length === 0) return { canceled: true };
+    const preview = await previewImport(result.filePaths[0], store);
+    return { canceled: false, preview };
+  });
+
+  handle('import:commit', (token: unknown, options: unknown) =>
+    commitImport(validateToken(token), validateImportOptions(options), store),
+  );
 
   handle('data:restore', async () => {
     const win = getMainWindow();

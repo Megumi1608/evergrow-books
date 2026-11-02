@@ -1,21 +1,61 @@
 # Evergrow Books
 
-Sổ thu chi doanh nghiệp gọn nhẹ cho Windows. Toàn bộ dữ liệu nằm trong một tệp SQLite trên máy, không cần tài khoản, không cần máy chủ.
+Sổ thu chi doanh nghiệp gọn nhẹ cho Windows. Dữ liệu nằm trong một tệp SQLite trên máy, không cần tài khoản, không cần máy chủ.
 
 ![Tổng quan](docs/dashboard.png)
 
-## Tính năng
+## Điểm chính
 
-- **Tổng quan** theo tháng: thu nhập, chi phí, chênh lệch, biểu đồ 6 tháng và cơ cấu chi phí.
-- **Giao dịch**: thêm, sửa, xoá; lọc theo khoảng ngày, loại, danh mục và từ khoá; phân trang.
-- **Danh mục** thu/chi có màu nhận diện; chặn xoá danh mục đang được sử dụng.
-- **Báo cáo** theo tháng/quý/năm hoặc khoảng tuỳ chọn.
-- **Xuất tệp**: CSV (UTF-8 cho Excel), XLSX nhiều sheet, PDF A4.
-- **Sao lưu và phục hồi** trực tiếp từ tệp `.db`.
+- **Giao diện Mono**: nền trắng đen, chữ và viền trung tính; chỉ số liệu thu/chi, cảnh báo và trạng thái đặc biệt dùng xanh lá, đỏ, vàng.
+- **Theme editor**: 4 bộ màu có sẵn (Mono, Giấy, Khói, Đêm) và chỉnh từng màu nền/chữ/màu nhấn; lưu vào SQLite và áp dụng cho cả thanh tiêu đề Windows.
+- **Tổng quan** theo tháng: thu nhập, chi phí, chênh lệch, biểu đồ 6 tháng, cơ cấu chi phí.
+- **Giao dịch vận đơn**: ngày, số tờ khai, cửa khẩu, đối tác, tên hàng, loại hàng, số container, kích thước 20'/40', đơn vị vận chuyển, hình thức thanh toán, chi tiết phí.
+- **Nhập Excel** từ file mẫu hai sheet, xem trước, tự tạo danh mục, bỏ qua giao dịch trùng.
+- **Xuất CSV / XLSX / PDF** chuẩn hóa, có tổng hợp và logo công ty.
+- **Sao lưu / phục hồi** trực tiếp từ tệp `.db`.
 - **Tự động cập nhật** qua GitHub Releases: kiểm tra khi mở app và mỗi 4 giờ, tải ngầm, cài khi khởi động lại.
-- **Bộ cài dạng wizard** (NSIS), đóng gói sẵn Electron và SQLite — máy người dùng không cần cài Node.js hay môi trường nào khác.
+- **Bộ cài wizard** (NSIS), đóng gói sẵn Electron và SQLite — máy người dùng không cần cài Node.js hay môi trường nào khác.
 
 ![Giao dịch](docs/transactions.png)
+
+## Nhập Excel
+
+Mở **Giao dịch → Nhập Excel**, chọn tệp `.xlsx`. App đọc được mẫu **KH Thanh toán / Tiền làm hàng** và cả tệp do chính app xuất ra.
+
+| Nguồn | Trường được nhập |
+| --- | --- |
+| Sheet 1 · KH Thanh toán | Ngày GH, SỐ TK, Cửa, Tên Cty, Tên Hàng, Loại hàng, Thành Tiền, các cột phí |
+| Sheet 2 · Tiền làm hàng | SỐ TK, Đơn vị vận chuyển, Số Cont, cột 20'/40', Tổng Chi, các cột phí |
+
+Cách xử lý khi nhập:
+
+- Ô merge được mở rộng để lấy ngày/tờ khai/cửa khẩu của nhóm dòng.
+- Thiếu ngày: chọn **lấy ngày dòng trước** hoặc **bỏ qua**; có cảnh báo trước khi nhập.
+- Tự tạo danh mục dạng `Doanh thu <Loại hàng>` / `Chi phí <Loại hàng>`.
+- Dòng có cùng dấu vân tay (ngày, số tiền, số TK, container, đối tác, hàng hóa) bị bỏ qua khi nhập lại.
+- Tổng tiền được tính lại từ từng dòng; không dùng ô “TỔNG CỘNG” có sẵn trong file mẫu.
+- “Còn Lại” không lưu thành cột riêng; app tính chênh lệch thu – chi theo kỳ và bạn có thể lọc theo Số TK để đối chiếu từng lô.
+
+## Giao diện
+
+Trang **Giao diện** cho phép chọn bộ màu và chỉnh từng màu:
+
+- Nền trang, bề mặt thẻ, nền phụ, chữ chính, chữ phụ, chữ mờ, viền, viền đậm.
+- Màu nhấn: thu nhập (xanh), chi phí (đỏ), cảnh báo (vàng).
+- Xem trước trực tiếp trước khi lưu; rời trang mà không lưu sẽ quay về bộ màu đang dùng.
+- Logo giữ màu thương hiệu trên nền sáng và tự chuyển trắng trên nền tối.
+
+![Giao diện](docs/appearance.png)
+
+## Xuất tệp
+
+| Định dạng | Nội dung |
+| --- | --- |
+| CSV | Bảng phẳng 16 cột, UTF-8 BOM, ngày `dd/mm/yyyy`, số tiền nguyên, có chi tiết phí. Chặn công thức Excel từ dữ liệu nhập. |
+| XLSX | Sheet **Tổng hợp** có logo, thẻ tổng thu/chi/chênh lệch, cơ cấu danh mục, tổng hợp tháng; sheet **Thu** và **Chi** có bộ lọc, cố định tiêu đề, tổng dòng và định dạng in A4 ngang. |
+| PDF | Báo cáo A4: logo, tổng hợp, cơ cấu danh mục, chi tiết tháng, danh sách giao dịch kèm số tờ khai và container. |
+
+![Báo cáo](docs/report.png)
 
 ## Cài đặt
 
@@ -23,28 +63,21 @@ Sổ thu chi doanh nghiệp gọn nhẹ cho Windows. Toàn bộ dữ liệu nằ
 2. Tải `Evergrow-Books-Setup-x.y.z.exe`.
 3. Chạy bộ cài, chọn thư mục và hoàn tất wizard.
 
-Yêu cầu: Windows 10/11 x64. Bản cài hiện chưa ký số nên Windows SmartScreen có thể hiện cảnh báo — chọn **More info → Run anyway**.
+Yêu cầu: Windows 10/11 x64. Bản cài chưa ký số nên Windows SmartScreen có thể hiện cảnh báo — chọn **More info → Run anyway**.
 
 ## Dữ liệu
 
-- Cơ sở dữ liệu: `%APPDATA%\Evergrow Books\evergrow-books.db` (SQLite, chế độ WAL).
+- Cơ sở dữ liệu: `%APPDATA%\Evergrow Books\evergrow-books.db` (SQLite, WAL).
 - Nút **Mở thư mục** trong Cài đặt đưa thẳng tới tệp đang dùng.
 - **Sao lưu** tạo một tệp `.db` độc lập; **Phục hồi** thay thế dữ liệu hiện tại.
+- Nâng cấp phiên bản tự động bổ sung cột mới, giữ nguyên dữ liệu cũ.
 - Dữ liệu không được mã hoá. Hãy bảo vệ tệp `.db` và các bản sao lưu.
-- Ứng dụng không gửi dữ liệu lên máy chủ. Khi kiểm tra cập nhật, chỉ phiên bản ứng dụng được đối chiếu với GitHub.
-
-## Xuất tệp
-
-| Định dạng | Nội dung |
-| --- | --- |
-| CSV | Danh sách giao dịch theo bộ lọc hiện tại, có BOM UTF-8 để mở đúng tiếng Việt trong Excel |
-| XLSX | Sheet **Giao dịch** (chi tiết) và **Tổng hợp** (thu, chi, chênh lệch, theo danh mục) |
-| PDF | Báo cáo A4 theo khoảng ngày: tổng hợp, cơ cấu danh mục, chi tiết tháng và danh sách giao dịch |
+- App không gửi dữ liệu lên máy chủ. Khi kiểm tra cập nhật, chỉ phiên bản ứng dụng được đối chiếu với GitHub.
 
 ## Tự động cập nhật
 
 - App đọc bản phát hành mới nhất từ repo public, tải ngầm qua `electron-updater` và kiểm tra SHA-512 trong `latest.yml`.
-- Trạng thái được hiển thị ở thanh bên và trong **Cài đặt → Cập nhật ứng dụng**.
+- Trạng thái hiển thị ở thanh bên và trong **Cài đặt → Cập nhật ứng dụng**.
 - Khi tải xong, bấm **Khởi động lại & cập nhật**; bản cài cũng được áp dụng khi thoát app.
 
 ### Phát hành bản mới
@@ -53,11 +86,11 @@ Yêu cầu: Windows 10/11 x64. Bản cài hiện chưa ký số nên Windows Sma
 npm version patch            # tăng phiên bản
 npm run build
 npx electron-builder --win nsis
-gh release create v1.0.1 \
-  release/Evergrow-Books-Setup-1.0.1.exe \
+gh release create v1.1.1 \
+  release/Evergrow-Books-Setup-1.1.1.exe \
   release/latest.yml \
-  release/Evergrow-Books-Setup-1.0.1.exe.blockmap \
-  --title "Evergrow Books 1.0.1" --notes "Nội dung cập nhật"
+  release/Evergrow-Books-Setup-1.1.1.exe.blockmap \
+  --title "Evergrow Books 1.1.1" --notes "Nội dung cập nhật"
 ```
 
 Luôn tải kèm `latest.yml` và tệp `.blockmap`; thiếu một trong hai thì tự cập nhật sẽ không hoạt động.
@@ -79,11 +112,12 @@ npm run dist       # tạo installer NSIS
 ### Cấu trúc
 
 ```
-src/main/       Electron main, SQLite, IPC, xuất tệp, updater
+src/main/       Electron main, SQLite, IPC, importer, exporter, updater
 src/preload/    Cầu contextBridge có kiểu
-src/renderer/   React + TypeScript + Vite
-src/shared/     Kiểu dữ liệu và tiện ích dùng chung
-scripts/        build, dev, verify, tạo icon
+src/renderer/   React + TypeScript + Vite, trang Giao diện và theme
+src/shared/     Kiểu dữ liệu, theme, brand assets, tiện ích dùng chung
+scripts/        build, dev, verify, tạo logo/icon
+assets/         Logo gốc và các biến thể đã tách nền
 build/          icon.ico / installer assets
 ```
 
@@ -91,12 +125,14 @@ build/          icon.ico / installer assets
 
 - `contextIsolation`, `sandbox`, không bật `nodeIntegration`.
 - IPC chỉ mở các kênh cần thiết; mọi dữ liệu được kiểm tra lại ở main process.
-- Truy vấn SQLite dùng tham số; danh mục/giao dịch được ràng buộc bằng khoá ngoại và CHECK constraint.
-- Cửa sổ mới và điều hướng ngoài bị chặn; liên kết GitHub được mở qua shell hệ điều hành.
+- Truy vấn SQLite dùng tham số; danh mục/giao dịch có khoá ngoại và CHECK constraint.
+- CSV chặn formula injection; XLSX ghi chuỗi an toàn.
+- Cửa sổ mới và điều hướng ngoài bị chặn; liên kết GitHub mở qua shell hệ điều hành.
 
 ## Giới hạn hiện tại
 
 - Windows x64, một người dùng trên một máy.
 - Số tiền là số nguyên đồng (VND), không hỗ trợ tiền tệ khác.
 - Không nhập được giao dịch ở tương lai.
+- Chi tiết phí được lưu và hiển thị, nhưng chưa tách thành bút toán riêng trong báo cáo.
 - Bản phát hành chưa ký số nên có thể bị SmartScreen cảnh báo.

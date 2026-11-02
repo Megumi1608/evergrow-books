@@ -1,13 +1,17 @@
 import { createContext, useContext } from 'react';
+import type { ThemeSettings } from '../shared/theme';
 import type { AppMeta, Transaction, UpdateState } from '../shared/types';
 
 export interface AppContextValue {
   meta: AppMeta | null;
   companyName: string;
+  theme: ThemeSettings;
   revision: number;
   updateState: UpdateState;
   bump: () => void;
   reloadSettings: () => Promise<void>;
+  previewTheme: (theme: ThemeSettings) => void;
+  saveTheme: (theme: ThemeSettings) => Promise<ThemeSettings>;
   openTransaction: (transaction?: Transaction) => void;
 }
 

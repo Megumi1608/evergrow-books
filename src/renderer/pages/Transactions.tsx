@@ -10,15 +10,18 @@ import {
   SquarePen,
   Trash,
   ArrowLeftRight,
+  Upload,
 } from 'lucide-react';
-import type { Category, Transaction, TxKind, TxPage } from '../../shared/types';
+import type { Category, ImportPreview, Transaction, TxKind, TxPage } from '../../shared/types';
 import { METHOD_LABELS } from '../../shared/types';
 import { currentMonth, formatDate, monthBounds } from '../../shared/dates';
 import { formatNumber, formatSignedVnd } from '../../shared/format';
 import { api, getErrorMessage } from '../api';
+import { transactionMeta, transactionTitle } from '../transactionText';
 import { useApp } from '../context';
 import { useDebounced } from '../hooks';
 import { useToast } from '../components/toast';
+import { ImportDialog } from '../components/ImportDialog';
 import {
   ConfirmDialog,
   EmptyState,
@@ -47,6 +50,8 @@ export function TransactionsPage() {
   const [deleteTarget, setDeleteTarget] = useState<Transaction | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [exporting, setExporting] = useState<'csv' | 'xlsx' | null>(null);
+  const [importPreview, setImportPreview] = useState<ImportPreview | null>(null);
+  const [importing, setImporting] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -122,6 +127,18 @@ export function TransactionsPage() {
     }
   };
 
+  const startImport = async () => {
+    setImporting(true);
+    try {
+      const result = await api.importFile.preview();
+      if (!result.canceled && result.preview) setImportPreview(result.preview);
+    } catch (error) {
+      toast(getErrorMessage(error), 'error');
+    } finally {
+      setImporting(false);
+    }
+  };
+
   const confirmDelete = async () => {
     if (!deleteTarget) return;
     setDeleting(true);
@@ -169,6 +186,10 @@ export function TransactionsPage() {
               {exporting === 'xlsx' ? <LoaderCircle size={15} className="spin" /> : <Download size={15} />}
               Excel
             </button>
+            <button type="button" className="btn btn-outline" onClick={startImport} disabled={importing}>
+              {importing ? <LoaderCircle size={15} className="spin" /> : <Upload size={15} />}
+              Nhập Excel
+            </button>
             <button type="button" className="btn btn-primary" onClick={() => openTransaction()}>
               <Plus size={16} />
               Thêm giao dịch
@@ -197,7 +218,7 @@ export function TransactionsPage() {
           <Search size={15} />
           <input
             className="search-input"
-            placeholder="Tìm đối tác hoặc ghi chú…"
+            placeholder="Tìm đối tác, số tờ khai, container…"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
           />
@@ -260,6 +281,10 @@ export function TransactionsPage() {
                 Xoá bộ lọc
               </button>
             ) : null}
+            <button type="button" className="btn btn-outline" onClick={startImport} disabled={importing}>
+              {importing ? <LoaderCircle size={15} className="spin" /> : <Upload size={15} />}
+              Nhập Excel
+            </button>
             <button type="button" className="btn btn-primary" onClick={() => openTransaction()}>
               <Plus size={16} />
               Thêm giao dịch
@@ -286,14 +311,14 @@ export function TransactionsPage() {
                     <td className="date-cell">{formatDate(transaction.occurredOn)}</td>
                     <td>
                       <span className="cat-cell">
-                        <i className="dot" style={{ background: transaction.categoryColor }} />
+                        <i className="dot" />
                         {transaction.categoryName}
                       </span>
                     </td>
                     <td>
-                      <div className="tx-main">{transaction.party || transaction.note || '—'}</div>
-                      {transaction.party && transaction.note ? (
-                        <div className="tx-sub">{transaction.note}</div>
+                      <div className="tx-main">{transactionTitle(transaction)}</div>
+                      {transactionMeta(transaction) ? (
+                        <div className="tx-sub">{transactionMeta(transaction)}</div>
                       ) : null}
                     </td>
                     <td className="method-cell">{METHOD_LABELS[transaction.method]}</td>
@@ -354,6 +379,26 @@ export function TransactionsPage() {
           </div>
         </div>
       )}
+
+      {importPreview ? (
+        <ImportDialog
+          preview={importPreview}
+          onClose={() => setImportPreview(null)}
+          onImported={() => {
+            const dates = importPreview.sheets
+              .flatMap((sheet) => [sheet.from, sheet.to])
+              .filter(Boolean)
+              .sort();
+            if (dates.length > 0) {
+              setFrom(dates[0]);
+              setTo(dates[dates.length - 1]);
+              setPage(0);
+            }
+            setImportPreview(null);
+            bump();
+          }}
+        />
+      ) : null}
 
       {deleteTarget ? (
         <ConfirmDialog
