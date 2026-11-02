@@ -3,6 +3,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Download,
+  ListFilter,
   LoaderCircle,
   Plus,
   RotateCcw,
@@ -14,7 +15,7 @@ import {
 } from 'lucide-react';
 import type { Category, ImportPreview, Transaction, TxKind, TxPage } from '../../shared/types';
 import { METHOD_LABELS } from '../../shared/types';
-import { currentMonth, formatDate, monthBounds } from '../../shared/dates';
+import { formatDate } from '../../shared/dates';
 import { formatNumber, formatSignedVnd } from '../../shared/format';
 import { api, getErrorMessage } from '../api';
 import { transactionMeta, transactionTitle } from '../transactionText';
@@ -32,13 +33,12 @@ import {
 } from '../components/ui';
 
 const PAGE_SIZE = 50;
-const initialRange = monthBounds(currentMonth());
 
 export function TransactionsPage() {
   const { revision, bump, openTransaction } = useApp();
   const toast = useToast();
-  const [from, setFrom] = useState(initialRange.from);
-  const [to, setTo] = useState(initialRange.to);
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
   const [kind, setKind] = useState<'all' | TxKind>('all');
   const [categoryId, setCategoryId] = useState(0);
   const [query, setQuery] = useState('');
@@ -157,7 +157,15 @@ export function TransactionsPage() {
   const total = data?.total ?? 0;
   const start = total === 0 ? 0 : page * PAGE_SIZE + 1;
   const end = Math.min((page + 1) * PAGE_SIZE, total);
-  const subtitle = `${formatNumber(total)} giao dịch${from && to ? ` · ${formatDate(from)} – ${formatDate(to)}` : ' · tất cả thời gian'}`;
+  const rangeLabel =
+    from && to
+      ? `${formatDate(from)} – ${formatDate(to)}`
+      : from
+        ? `từ ${formatDate(from)}`
+        : to
+          ? `đến ${formatDate(to)}`
+          : 'tất cả thời gian';
+  const subtitle = `${formatNumber(total)} giao dịch · ${rangeLabel}`;
   const incomeCategories = categories.filter((category) => category.kind === 'income');
   const expenseCategories = categories.filter((category) => category.kind === 'expense');
 
@@ -258,10 +266,17 @@ export function TransactionsPage() {
             ))}
           </optgroup>
         </Select>
-        <button type="button" className="btn btn-ghost btn-sm" onClick={resetFilters} disabled={!hasFilters}>
-          <RotateCcw size={14} />
-          Xoá lọc
-        </button>
+        {hasFilters ? (
+          <button type="button" className="btn btn-ghost btn-sm" onClick={resetFilters}>
+            <RotateCcw size={14} />
+            Xoá lọc
+          </button>
+        ) : (
+          <span className="filter-state">
+            <ListFilter size={13} />
+            Không lọc
+          </span>
+        )}
       </div>
 
       {loading && !data ? (

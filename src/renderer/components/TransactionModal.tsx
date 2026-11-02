@@ -1,14 +1,23 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ChevronDown, LoaderCircle } from 'lucide-react';
-import type { Category, Method, Transaction, TxInput, TxKind } from '../../shared/types';
-import { METHOD_LABELS } from '../../shared/types';
+import { ChevronDown, ExternalLink, FileText, LoaderCircle, Paperclip, Trash } from 'lucide-react';
+import type {
+  AttachmentMeta,
+  Category,
+  Currency,
+  Method,
+  Transaction,
+  TxInput,
+  TxKind,
+} from '../../shared/types';
+import { CURRENCIES, CURRENCY_LABELS, CURRENCY_SUFFIX, METHOD_LABELS } from '../../shared/types';
 import { todayIso } from '../../shared/dates';
-import { formatNumber, parseAmount } from '../../shared/format';
+import { formatNumber, formatVnd, parseAmount } from '../../shared/format';
 import { api, getErrorMessage } from '../api';
 import { useToast } from './toast';
 import { Modal, Segmented, Select } from './ui';
 
 const METHOD_OPTIONS = Object.entries(METHOD_LABELS) as [Method, string][];
+const CURRENCY_OPTIONS = CURRENCIES.map((value) => ({ value, label: CURRENCY_LABELS[value] }));
 
 export function TransactionModal({
   transaction,
@@ -22,8 +31,14 @@ export function TransactionModal({
   const toast = useToast();
   const [categories, setCategories] = useState<Category[]>([]);
   const [kind, setKind] = useState<TxKind>(transaction?.kind ?? 'expense');
-  const [amount, setAmount] = useState(transaction?.amount ?? 0);
-  const [amountText, setAmountText] = useState(transaction ? formatNumber(transaction.amount) : '');
+  const initialCurrency = transaction?.currency ?? 'VND';
+  const initialInputAmount =
+    transaction && initialCurrency !== 'VND' ? transaction.originalAmount : (transaction?.amount ?? 0);
+  const [currency, setCurrency] = useState<Currency>(initialCurrency);
+  const [inputAmount, setInputAmount] = useState(initialInputAmount);
+  const [amountText, setAmountText] = useState(initialInputAmount ? formatNumber(initialInputAmount) : '');
+  const [exchangeRate, setExchangeRate] = useState(transaction?.exchangeRate ?? 1);
+  const [rateText, setRateText] = useState(String(transaction?.exchangeRate ?? 1));
   const [occurredOn, setOccurredOn] = useState(transaction?.occurredOn ?? todayIso());
   const [categoryId, setCategoryId] = useState(transaction?.categoryId ?? 0);
   const [method, setMethod] = useState<Method>(transaction?.method ?? 'bank');
@@ -36,6 +51,14 @@ export function TransactionModal({
   const [containerNo, setContainerNo] = useState(transaction?.containerNo ?? '');
   const [containerSize, setContainerSize] = useState(transaction?.containerSize ?? '');
   const [carrier, setCarrier] = useState(transaction?.carrier ?? '');
+  const [trackDebt, setTrackDebt] = useState(Boolean(transaction?.dueDate));
+  const [dueDate, setDueDate] = useState(transaction?.dueDate ?? '');
+  const [paidAmount, setPaidAmount] = useState(transaction?.dueDate ? transaction.paidAmount : 0);
+  const [paidText, setPaidText] = useState(
+    transaction?.dueDate && transaction.paidAmount ? formatNumber(transaction.paidAmount) : '',
+  );
+  const [attachments, setAttachments] = useState<AttachmentMeta[]>([]);
+  const [attachmentBusy, setAttachmentBusy] = useState(false);
   const [showExtras, setShowExtras] = useState(
     Boolean(
       transaction?.reference ||
@@ -50,6 +73,8 @@ export function TransactionModal({
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
 
+  const amountVnd = currency === 'VND' ? inputAmount : Math.round(inputAmount * exchangeRate);
+
   useEffect(() => {
     let alive = true;
     api.categories
@@ -63,6 +88,20 @@ export function TransactionModal({
       alive = false;
     };
   }, [toast]);
+
+  useEffect(() => {
+    if (!transaction) return;
+    let alive = true;
+    api.attachments
+      .list(transaction.id)
+      .then((list) => {
+        if (alive) setAttachments(list);
+      })
+      .catch((err) => toast(getErrorMessage(err), 'error'));
+    return () => {
+      alive = false;
+    };
+  }, [transaction, toast]);
 
   const options = useMemo(() => categories.filter((category) => category.kind === kind), [categories, kind]);
 
@@ -79,6 +118,61 @@ export function TransactionModal({
     setCategoryId(nextOptions[0]?.id ?? 0);
   };
 
+  const changeCurrency = (next: Currency) => {
+    if (next === currency) return;
+    if (next === 'VND') {
+      const converted = amountVnd;
+      setInputAmount(converted);
+      setAmountText(converted ? formatNumber(converted) : '');
+      setExchangeRate(1);
+      setRateText('1');
+    } else {
+      setInputAmount(0);
+      setAmountText('');
+      setExchangeRate(1);
+      setRateText('1');
+    }
+    setCurrency(next);
+  };
+
+  const toggleDebt = (enabled: boolean) => {
+    setTrackDebt(enabled);
+    if (enabled) {
+      setPaidAmount(0);
+      setPaidText('');
+    } else {
+      setDueDate('');
+      setPaidAmount(0);
+      setPaidText('');
+    }
+  };
+
+  const addAttachment = async () => {
+    if (!transaction) return;
+    setAttachmentBusy(true);
+    try {
+      const added = await api.attachments.add(transaction.id);
+      if (added) {
+        setAttachments((current) => [...current, added]);
+        toast('Đã thêm chứng từ.');
+      }
+    } catch (err) {
+      toast(getErrorMessage(err), 'error');
+    } finally {
+      setAttachmentBusy(false);
+    }
+  };
+
+  const removeAttachment = async (id: number) => {
+    try {
+      await api.attachments.remove(id);
+      setAttachments((current) => current.filter((item) => item.id !== id));
+      toast('Đã xoá chứng từ.');
+    } catch (err) {
+      toast(getErrorMessage(err), 'error');
+    }
+  };
+
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     setError('');
@@ -86,17 +180,29 @@ export function TransactionModal({
       setError('Ngày giao dịch không được ở tương lai.');
       return;
     }
-    if (amount <= 0) {
+    if (inputAmount <= 0) {
       setError('Nhập số tiền lớn hơn 0.');
+      return;
+    }
+    if (currency !== 'VND' && (!Number.isFinite(exchangeRate) || exchangeRate <= 0)) {
+      setError('Nhập tỷ giá lớn hơn 0.');
       return;
     }
     if (!categoryId) {
       setError('Chọn danh mục cho giao dịch.');
       return;
     }
+    if (trackDebt && !dueDate) {
+      setError('Chọn hạn thanh toán để theo dõi công nợ.');
+      return;
+    }
+    if (trackDebt && paidAmount > amountVnd) {
+      setError('Số tiền đã thanh toán không được vượt quá số tiền giao dịch.');
+      return;
+    }
     const input: TxInput = {
       kind,
-      amount,
+      amount: amountVnd,
       occurredOn,
       categoryId,
       party,
@@ -110,6 +216,11 @@ export function TransactionModal({
       containerSize,
       carrier,
       details: transaction?.details ?? {},
+      dueDate: trackDebt ? dueDate : '',
+      paidAmount: trackDebt ? paidAmount : amountVnd,
+      currency,
+      originalAmount: currency === 'VND' ? amountVnd : inputAmount,
+      exchangeRate: currency === 'VND' ? 1 : exchangeRate,
     };
     setSaving(true);
     try {
@@ -154,8 +265,22 @@ export function TransactionModal({
           ]}
         />
 
-        <label className="field amount-field">
-          <span className="field-label">Số tiền</span>
+        <div className="field amount-field">
+          <div className="amount-head">
+            <span className="field-label">Số tiền</span>
+            <Select
+              className="currency-select"
+              value={currency}
+              onChange={(event) => changeCurrency(event.target.value as Currency)}
+              aria-label="Tiền tệ"
+            >
+              {CURRENCY_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </Select>
+          </div>
           <span className="amount-wrap">
             <input
               className="input amount-input"
@@ -165,13 +290,36 @@ export function TransactionModal({
               value={amountText}
               onChange={(event) => {
                 const parsed = parseAmount(event.target.value);
-                setAmount(parsed);
+                setInputAmount(parsed);
                 setAmountText(parsed > 0 ? formatNumber(parsed) : '');
               }}
             />
-            <span className="amount-suffix">đ</span>
+            <span className="amount-suffix">{CURRENCY_SUFFIX[currency]}</span>
           </span>
-        </label>
+          {currency !== 'VND' ? (
+            <div className="fx-row">
+              <label className="fx-rate">
+                <span>Tỷ giá (VND / 1 {currency})</span>
+                <input
+                  className="input"
+                  type="number"
+                  min="0.0001"
+                  step="0.0001"
+                  value={rateText}
+                  onChange={(event) => {
+                    setRateText(event.target.value);
+                    const parsed = Number(event.target.value);
+                    setExchangeRate(Number.isFinite(parsed) && parsed > 0 ? parsed : 0);
+                  }}
+                />
+              </label>
+              <div className="fx-total">
+                <span>Quy đổi</span>
+                <strong>{formatVnd(amountVnd)}</strong>
+              </div>
+            </div>
+          ) : null}
+        </div>
 
         <div className="form-row">
           <label className="field">
@@ -231,6 +379,60 @@ export function TransactionModal({
             onChange={(event) => setNote(event.target.value)}
           />
         </label>
+
+        <div className="debt-block">
+          <label className="check-row">
+            <input
+              type="checkbox"
+              checked={trackDebt}
+              onChange={(event) => toggleDebt(event.target.checked)}
+            />
+            <span>
+              <strong>Theo dõi công nợ</strong>
+              <small>Bật để nhập hạn thanh toán và số tiền đã trả.</small>
+            </span>
+          </label>
+          {trackDebt ? (
+            <>
+              <div className="form-row">
+                <label className="field">
+                  <span className="field-label">Hạn thanh toán</span>
+                  <input
+                    className="input"
+                    type="date"
+                    value={dueDate}
+                    onChange={(event) => setDueDate(event.target.value)}
+                  />
+                </label>
+                <label className="field">
+                  <span className="field-label">Đã thanh toán (VND)</span>
+                  <span className="amount-wrap">
+                    <input
+                      className="input"
+                      inputMode="numeric"
+                      value={paidText}
+                      placeholder="0"
+                      onChange={(event) => {
+                        const parsed = Math.min(parseAmount(event.target.value), amountVnd);
+                        setPaidAmount(parsed);
+                        setPaidText(parsed > 0 ? formatNumber(parsed) : '');
+                      }}
+                    />
+                    <span className="amount-suffix">đ</span>
+                  </span>
+                </label>
+              </div>
+              <div className="debt-summary">
+                <span>Còn nợ</span>
+                <strong className={amountVnd - paidAmount > 0 ? 'expense' : ''}>
+                  {formatVnd(Math.max(0, amountVnd - paidAmount))}
+                </strong>
+              </div>
+            </>
+          ) : (
+            <p className="hint no-pad">Không theo dõi công nợ: giao dịch được xem là đã thanh toán đủ.</p>
+          )}
+        </div>
 
         <button
           type="button"
@@ -338,8 +540,72 @@ export function TransactionModal({
           </div>
         ) : null}
 
+        <div className="attachments-block">
+          <div className="attachments-head">
+            <span className="field-label">
+              <Paperclip size={13} />
+              Chứng từ
+              {attachments.length > 0 ? <span className="attachment-count">{attachments.length}</span> : null}
+            </span>
+            {transaction ? (
+              <button
+                type="button"
+                className="btn btn-outline btn-sm"
+                onClick={addAttachment}
+                disabled={attachmentBusy}
+              >
+                {attachmentBusy ? <LoaderCircle size={13} className="spin" /> : <Paperclip size={13} />}
+                Thêm tệp
+              </button>
+            ) : null}
+          </div>
+          {!transaction ? (
+            <p className="hint no-pad">Lưu giao dịch trước, sau đó mở lại để đính kèm chứng từ.</p>
+          ) : attachments.length === 0 ? (
+            <p className="hint no-pad">Chưa có chứng từ. Hỗ trợ ảnh PNG/JPG/WEBP/GIF và PDF, tối đa 10 MB.</p>
+          ) : (
+            <div className="attachment-list">
+              {attachments.map((attachment) => (
+                <div className="attachment-item" key={attachment.id}>
+                  <FileText size={15} />
+                  <span className="attachment-name" title={attachment.fileName}>
+                    {attachment.fileName}
+                  </span>
+                  <span className="attachment-size">{formatFileSize(attachment.size)}</span>
+                  <button
+                    type="button"
+                    className="icon-btn sm"
+                    aria-label="Mở chứng từ"
+                    title="Mở chứng từ"
+                    onClick={() =>
+                      api.attachments.open(attachment.id).catch((err) => toast(getErrorMessage(err), 'error'))
+                    }
+                  >
+                    <ExternalLink size={14} />
+                  </button>
+                  <button
+                    type="button"
+                    className="icon-btn sm danger"
+                    aria-label="Xoá chứng từ"
+                    title="Xoá chứng từ"
+                    onClick={() => removeAttachment(attachment.id)}
+                  >
+                    <Trash size={14} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
         {error ? <p className="form-error">{error}</p> : null}
       </form>
     </Modal>
   );
+}
+
+function formatFileSize(size: number): string {
+  if (size >= 1024 * 1024) return `${(size / (1024 * 1024)).toLocaleString('vi-VN', { maximumFractionDigits: 1 })} MB`;
+  if (size >= 1024) return `${Math.round(size / 1024)} KB`;
+  return `${size} B`;
 }

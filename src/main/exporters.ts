@@ -2,7 +2,7 @@ import ExcelJS from 'exceljs';
 import type { Transaction, TxKind } from '../shared/types';
 import { METHOD_LABELS } from '../shared/types';
 import { formatDate, todayIso } from '../shared/dates';
-import { formatNumber } from '../shared/format';
+import { formatDecimal, formatNumber } from '../shared/format';
 import { LOGO_LOCKUP } from '../shared/brand';
 
 const KIND_LABEL: Record<TxKind, string> = { income: 'Thu nhập', expense: 'Chi phí' };
@@ -37,6 +37,13 @@ const CSV_HEADERS = [
   'Số tiền (VND)',
   'Ghi chú',
   'Chi tiết phí',
+  'Tiền tệ',
+  'Số tiền gốc',
+  'Tỷ giá',
+  'Hạn thanh toán',
+  'Đã thanh toán',
+  'Còn nợ',
+  'Chứng từ',
 ];
 
 function csvCell(value: string | number): string {
@@ -70,6 +77,13 @@ export function buildCsv(rows: Transaction[]): string {
       row.amount,
       row.note,
       detailsText(row.details),
+      row.currency,
+      row.originalAmount,
+      row.exchangeRate,
+      row.dueDate ? formatDate(row.dueDate) : '',
+      row.paidAmount,
+      Math.max(0, row.amount - row.paidAmount),
+      row.attachmentCount,
     ]
       .map(csvCell)
       .join(','),
@@ -140,23 +154,26 @@ function createDetailSheet(
     { key: 'amount', width: 17 },
     { key: 'note', width: 28 },
     { key: 'details', width: 42 },
+    { key: 'fx', width: 22 },
+    { key: 'debt', width: 34 },
+    { key: 'attachments', width: 10 },
   ];
 
-  sheet.mergeCells('A1:O1');
+  sheet.mergeCells('A1:R1');
   const company = sheet.getCell('A1');
   company.value = options.companyName;
   company.font = { bold: true, size: 15, color: { argb: INK } };
   company.alignment = { vertical: 'middle' };
   sheet.getRow(1).height = 26;
 
-  sheet.mergeCells('A2:O2');
+  sheet.mergeCells('A2:R2');
   const title = sheet.getCell('A2');
   title.value = kind === 'income' ? 'SỔ THU NHẬP' : 'SỔ CHI PHÍ';
   title.font = { bold: true, size: 11, color: { argb: INK } };
   title.alignment = { vertical: 'middle' };
   sheet.getRow(2).height = 18;
 
-  sheet.mergeCells('A3:O3');
+  sheet.mergeCells('A3:R3');
   const period = sheet.getCell('A3');
   period.value = `Kỳ: ${options.periodLabel}   ·   Xuất ngày ${formatDate(todayIso())}   ·   ${rows.length} giao dịch`;
   period.font = { size: 9, color: { argb: MUTED } };
@@ -178,6 +195,9 @@ function createDetailSheet(
     'Số tiền (VND)',
     'Ghi chú',
     'Chi tiết phí',
+    'Ngoại tệ',
+    'Công nợ',
+    'Chứng từ',
   ];
   const headerRow = sheet.getRow(5);
   headerRow.values = headerLabels;
@@ -186,6 +206,13 @@ function createDetailSheet(
   const firstDataRow = 6;
   rows.forEach((row, index) => {
     const added = sheet.getRow(firstDataRow + index);
+    const fxText =
+      row.currency !== 'VND'
+        ? `${formatDecimal(row.originalAmount)} ${row.currency} × ${formatDecimal(row.exchangeRate)}`
+        : '';
+    const debtText = row.dueDate
+      ? `${formatNumber(row.paidAmount)} / ${formatNumber(row.amount)} đ · hạn ${formatDate(row.dueDate)}`
+      : '';
     added.values = [
       index + 1,
       formatDate(row.occurredOn),
@@ -202,14 +229,17 @@ function createDetailSheet(
       row.amount,
       row.note,
       detailsText(row.details),
+      fxText,
+      debtText,
+      row.attachmentCount || '',
     ];
     added.height = 22;
     added.eachCell({ includeEmpty: true }, (cell, col) => {
       cell.font = { size: 9.5, color: { argb: col === 13 ? (kind === 'income' ? INCOME : EXPENSE) : INK } };
       cell.alignment = {
         vertical: 'top',
-        wrapText: col === 14 || col === 15,
-        horizontal: col === 13 || col === 1 ? 'right' : 'left',
+        wrapText: col === 14 || col === 15 || col === 17,
+        horizontal: col === 13 || col === 1 || col === 18 ? 'right' : 'left',
       };
       cell.border = { bottom: { style: 'hair', color: { argb: LINE } } };
       if (index % 2 === 1) {
@@ -232,7 +262,7 @@ function createDetailSheet(
   totalRow.getCell(13).numFmt = '#,##0';
   totalRow.getCell(13).font = { bold: true, size: 10, color: { argb: kind === 'income' ? INCOME : EXPENSE } };
   totalRow.getCell(13).alignment = { horizontal: 'right', vertical: 'middle' };
-  for (let col = 1; col <= 15; col += 1) {
+  for (let col = 1; col <= 18; col += 1) {
     totalRow.getCell(col).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: SOFT } };
     totalRow.getCell(col).border = {
       top: { style: 'thin', color: { argb: LINE } },
@@ -241,7 +271,7 @@ function createDetailSheet(
   }
 
   if (rows.length > 0) {
-    sheet.autoFilter = { from: { row: 5, column: 1 }, to: { row: 5 + rows.length, column: 15 } };
+    sheet.autoFilter = { from: { row: 5, column: 1 }, to: { row: 5 + rows.length, column: 18 } };
   }
   sheet.headerFooter = {
     oddFooter: `&L${options.companyName}&CTrang &P / &N&R${options.periodLabel}`,

@@ -3,6 +3,7 @@ import {
   CircleAlert,
   CircleCheck,
   Database,
+  FileClock,
   FolderOpen,
   HardDriveDownload,
   Info,
@@ -11,8 +12,9 @@ import {
   RotateCcw,
   Sparkles,
   Trash,
+  Undo2,
 } from 'lucide-react';
-import type { DataStats } from '../../shared/types';
+import type { BackupInfo, DataStats, ImportBatch } from '../../shared/types';
 import { LOGO_LOCKUP } from '../../shared/brand';
 import { formatNumber } from '../../shared/format';
 import { api, getErrorMessage } from '../api';
@@ -32,6 +34,11 @@ export function SettingsPage() {
   const [checking, setChecking] = useState(false);
   const [resetOpen, setResetOpen] = useState(false);
   const [resetting, setResetting] = useState(false);
+  const [backupInfo, setBackupInfo] = useState<BackupInfo | null>(null);
+  const [autoBackupBusy, setAutoBackupBusy] = useState(false);
+  const [history, setHistory] = useState<ImportBatch[]>([]);
+  const [undoTarget, setUndoTarget] = useState<ImportBatch | null>(null);
+  const [undoing, setUndoing] = useState(false);
 
   useEffect(() => {
     setCompanyInput(companyName);
@@ -43,6 +50,18 @@ export function SettingsPage() {
       .stats()
       .then((result) => {
         if (alive) setStats(result);
+      })
+      .catch(() => undefined);
+    api.data
+      .backupInfo()
+      .then((result) => {
+        if (alive) setBackupInfo(result);
+      })
+      .catch(() => undefined);
+    api.importFile
+      .history()
+      .then((result) => {
+        if (alive) setHistory(result);
       })
       .catch(() => undefined);
     return () => {
@@ -93,6 +112,44 @@ export function SettingsPage() {
       toast(getErrorMessage(error), 'error');
     } finally {
       setBusy(null);
+    }
+  };
+
+  const backupNow = async () => {
+    setAutoBackupBusy(true);
+    try {
+      const info = await api.data.backupNow();
+      setBackupInfo(info);
+      toast('Đã sao lưu dữ liệu.');
+    } catch (error) {
+      toast(getErrorMessage(error), 'error');
+    } finally {
+      setAutoBackupBusy(false);
+    }
+  };
+
+  const openBackupFolder = async () => {
+    try {
+      await api.data.openBackupFolder();
+    } catch (error) {
+      toast(getErrorMessage(error), 'error');
+    }
+  };
+
+  const undoImport = async () => {
+    if (!undoTarget) return;
+    setUndoing(true);
+    try {
+      const result = await api.importFile.undo(undoTarget.id);
+      toast(
+        `Đã hoàn tác ${result.removed} giao dịch${result.categoriesRemoved ? `, xoá ${result.categoriesRemoved} danh mục trống` : ''}.`,
+      );
+      setUndoTarget(null);
+      bump();
+    } catch (error) {
+      toast(getErrorMessage(error), 'error');
+    } finally {
+      setUndoing(false);
     }
   };
 
@@ -240,6 +297,72 @@ export function SettingsPage() {
               </button>
             </div>
             <p className="hint">Phục hồi sẽ thay thế toàn bộ dữ liệu hiện tại bằng tệp sao lưu đã chọn.</p>
+            <div className="auto-backup">
+              <div className="auto-backup-head">
+                <div>
+                  <strong>Sao lưu tự động</strong>
+                  <p>
+                    Tự tạo bản sao lưu mỗi ngày khi mở app, giữ 14 bản gần nhất. Chứng từ đính kèm nằm trong
+                    cùng tệp SQLite.
+                  </p>
+                </div>
+                <FileClock size={17} />
+              </div>
+              <div className="auto-backup-meta">
+                <span>Bản gần nhất: {formatDateTime(backupInfo?.lastBackup ?? null)}</span>
+                <span>{formatNumber(backupInfo?.count ?? 0)} bản sao lưu</span>
+              </div>
+              <div className="data-actions no-pad">
+                <button
+                  type="button"
+                  className="btn btn-outline btn-sm"
+                  onClick={backupNow}
+                  disabled={autoBackupBusy}
+                >
+                  {autoBackupBusy ? <LoaderCircle size={14} className="spin" /> : <HardDriveDownload size={14} />}
+                  Sao lưu ngay
+                </button>
+                <button type="button" className="btn btn-ghost btn-sm" onClick={openBackupFolder}>
+                  <FolderOpen size={14} />
+                  Mở thư mục sao lưu
+                </button>
+              </div>
+            </div>
+          </section>
+
+          <section className="card import-history-card">
+            <div className="card-head">
+              <div>
+                <h2>Lịch sử nhập Excel</h2>
+                <p>Hoàn tác một lần nhập nếu dữ liệu không đúng.</p>
+              </div>
+              <FileClock size={17} className="card-icon" />
+            </div>
+            {history.length === 0 ? (
+              <p className="muted-note import-history-empty">Chưa có lần nhập Excel nào.</p>
+            ) : (
+              <div className="import-history">
+                {history.map((batch) => (
+                  <div className="import-history-row" key={batch.id}>
+                    <div className="import-history-info">
+                      <strong title={batch.fileName}>{batch.fileName}</strong>
+                      <span>
+                        {formatDateTime(batch.createdAt)} · {formatNumber(batch.inserted)} giao dịch · thu{' '}
+                        {formatNumber(batch.income)} đ · chi {formatNumber(batch.expense)} đ
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-sm"
+                      onClick={() => setUndoTarget(batch)}
+                    >
+                      <Undo2 size={14} />
+                      Hoàn tác
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </section>
 
           <section className="card danger-card">
@@ -370,8 +493,34 @@ export function SettingsPage() {
           onConfirm={reset}
         />
       ) : null}
+
+      {undoTarget ? (
+        <ConfirmDialog
+          title="Hoàn tác lần nhập Excel?"
+          description={
+            <>
+              Sẽ xoá <strong>{formatNumber(undoTarget.inserted)} giao dịch</strong> từ tệp{' '}
+              <strong>{undoTarget.fileName}</strong>, gồm cả chứng từ đính kèm. Các danh mục do lần nhập này tạo
+              sẽ bị xoá nếu không còn giao dịch. Một bản sao lưu được tạo trước khi hoàn tác.
+            </>
+          }
+          confirmLabel="Hoàn tác"
+          danger
+          busy={undoing}
+          onClose={() => setUndoTarget(null)}
+          onConfirm={undoImport}
+        />
+      ) : null}
     </div>
   );
+}
+
+function formatDateTime(value: string | null): string {
+  if (!value) return '—';
+  const normalized = value.includes('T') ? value : `${value.replace(' ', 'T')}Z`;
+  const date = new Date(normalized);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString('vi-VN', { hour12: false });
 }
 
 function describeUpdate(

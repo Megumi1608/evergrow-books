@@ -2,7 +2,12 @@ import { useEffect, useRef, useState } from 'react';
 import type { ReportData } from '../../shared/types';
 import { METHOD_LABELS } from '../../shared/types';
 import { formatDate, todayIso } from '../../shared/dates';
-import { formatNumber, formatSignedVnd } from '../../shared/format';
+import {
+  formatCurrencyAmount,
+  formatDecimal,
+  formatNumber,
+  formatSignedVnd,
+} from '../../shared/format';
 import { api, getErrorMessage } from '../api';
 import { LOGO_LOCKUP } from '../../shared/brand';
 
@@ -186,6 +191,22 @@ export function PrintReport({ params }: { params: URLSearchParams }) {
                     ) : null}
                     {transaction.containerSize ? (
                       <span className="print-note"> · {transaction.containerSize}</span>
+                    ) : null}
+                    {transaction.currency !== 'VND' ? (
+                      <span className="print-note">
+                        {' '}
+                        · {formatCurrencyAmount(transaction.originalAmount, transaction.currency)} ×{' '}
+                        {formatDecimal(transaction.exchangeRate)}
+                      </span>
+                    ) : null}
+                    {transaction.dueDate && transaction.paidAmount < transaction.amount ? (
+                      <span className="print-note">
+                        {' '}
+                        · Còn nợ {formatNumber(transaction.amount - transaction.paidAmount)} đ
+                      </span>
+                    ) : null}
+                    {transaction.attachmentCount > 0 ? (
+                      <span className="print-note"> · {transaction.attachmentCount} chứng từ</span>
                     ) : null}
                     {transaction.note ? <span className="print-note"> · {transaction.note}</span> : null}
                   </td>

@@ -10,6 +10,9 @@ import { Sidebar } from './components/Sidebar';
 import { TransactionModal } from './components/TransactionModal';
 import { DashboardPage } from './pages/Dashboard';
 import { TransactionsPage } from './pages/Transactions';
+import { ShipmentsPage } from './pages/Shipments';
+import { DebtsPage } from './pages/Debts';
+import { BudgetsPage } from './pages/Budgets';
 import { CategoriesPage } from './pages/Categories';
 import { ReportsPage } from './pages/Reports';
 import { AppearancePage } from './pages/Appearance';
@@ -134,7 +137,10 @@ function Shell({ route }: { route: Route }) {
       {modal ? (
         <TransactionModal
           transaction={modal.transaction}
-          onClose={() => setModal(null)}
+          onClose={() => {
+            setModal(null);
+            bump();
+          }}
           onSaved={() => {
             setModal(null);
             bump();
@@ -149,6 +155,12 @@ function renderPage(path: string) {
   switch (path) {
     case '/transactions':
       return <TransactionsPage />;
+    case '/shipments':
+      return <ShipmentsPage />;
+    case '/debts':
+      return <DebtsPage />;
+    case '/budgets':
+      return <BudgetsPage />;
     case '/categories':
       return <CategoriesPage />;
     case '/reports':

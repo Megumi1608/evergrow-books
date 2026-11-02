@@ -4,8 +4,10 @@ import path from 'node:path';
 import { Store } from './db';
 import { buildCsv, periodLabel, writeXlsx } from './exporters';
 import { commitImport, previewImport } from './importer';
+import { backupNow, createBackup, getBackupInfo, openBackupFolder } from './backups';
 import { checkForUpdates, getUpdateState, installUpdate, openReleases, RELEASES_URL } from './updater';
 import {
+  validateBudgetInput,
   validateCategoryInput,
   validateCompanySettings,
   validateConfirm,
@@ -13,7 +15,9 @@ import {
   validateId,
   validateImportOptions,
   validateMonth,
+  validatePaymentAmount,
   validateRange,
+  validateReference,
   validateTheme,
   validateToken,
   validateTxInput,
@@ -119,6 +123,79 @@ export function registerIpc(deps: IpcDeps): void {
     return store.report(from, to);
   });
 
+  handle('shipments:list', (filterInput: unknown) => {
+    const filter = validateFilter(filterInput);
+    return store.listShipments({ from: filter.from, to: filter.to, q: filter.q });
+  });
+
+  handle('shipments:get', (reference: unknown) => store.getShipment(validateReference(reference)));
+
+  handle('debts:list', () => store.listDebts());
+  handle('debts:pay', (id: unknown, amount: unknown) =>
+    store.payDebt(validateId(id, 'Giao dịch'), validatePaymentAmount(amount)),
+  );
+
+  handle('attachments:list', (id: unknown) => store.listAttachments(validateId(id, 'Giao dịch')));
+  handle('attachments:add', async (id: unknown) => {
+    const transactionId = validateId(id, 'Giao dịch');
+    const win = getMainWindow();
+    const options = {
+      title: 'Chọn chứng từ',
+      filters: [{ name: 'Chứng từ (ảnh, PDF)', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'pdf'] }],
+      properties: ['openFile' as const],
+    };
+    const result = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options);
+    if (result.canceled || result.filePaths.length === 0) return null;
+    const file = result.filePaths[0];
+    const stat = fs.statSync(file);
+    if (stat.size <= 0) throw new Error('Tệp chứng từ rỗng.');
+    if (stat.size > 10 * 1024 * 1024) throw new Error('Chứng từ tối đa 10 MB.');
+    const extension = path.extname(file).toLowerCase();
+    const mimeByExtension: Record<string, string> = {
+      '.png': 'image/png',
+      '.jpg': 'image/jpeg',
+      '.jpeg': 'image/jpeg',
+      '.webp': 'image/webp',
+      '.gif': 'image/gif',
+      '.pdf': 'application/pdf',
+    };
+    const mimeType = mimeByExtension[extension];
+    if (!mimeType) throw new Error('Chỉ hỗ trợ ảnh PNG/JPG/WEBP/GIF và PDF.');
+    return store.addAttachment(transactionId, path.basename(file), mimeType, fs.readFileSync(file));
+  });
+
+  handle('attachments:open', async (id: unknown) => {
+    const attachment = store.getAttachment(validateId(id, 'Chứng từ'));
+    if (!attachment) throw new Error('Không tìm thấy chứng từ.');
+    const directory = path.join(app.getPath('temp'), 'evergrow-books-attachments');
+    fs.mkdirSync(directory, { recursive: true });
+    const safeName = path.basename(attachment.meta.fileName).replace(/[^\w.\- ()]/g, '_');
+    const target = path.join(directory, `${attachment.meta.id}-${safeName}`);
+    fs.writeFileSync(target, Buffer.from(attachment.data));
+    const error = await shell.openPath(target);
+    if (error) throw new Error(error);
+  });
+
+  handle('attachments:remove', (id: unknown) => store.removeAttachment(validateId(id, 'Chứng từ')));
+
+  handle('budgets:get', (month: unknown) => store.getBudgets(validateMonth(month)));
+  handle('budgets:save', (input: unknown) => store.saveBudget(validateBudgetInput(input)));
+  handle('budgets:remove', (categoryId: unknown, month: unknown) =>
+    store.removeBudget(validateId(categoryId, 'Danh mục'), validateMonth(month)),
+  );
+  handle('budgets:copy-previous', (month: unknown) => store.copyPreviousBudgets(validateMonth(month)));
+
+  handle('import:history', () => store.listImportBatches());
+  handle('import:undo', async (batchId: unknown) => {
+    if (typeof batchId !== 'string' || !batchId) throw new Error('Lần nhập không hợp lệ.');
+    await createBackup(store, 'pre-undo');
+    return store.undoImportBatch(batchId);
+  });
+
+  handle('data:backup-info', () => getBackupInfo());
+  handle('data:backup-now', () => backupNow(store));
+  handle('data:open-backup-folder', () => openBackupFolder());
+
   handle('export:csv', async (filterInput: unknown) => {
     const filter = validateFilter(filterInput);
     const target = await saveDialog(`giao-dich_${filter.from ?? 'tat-ca'}_${filter.to ?? todayIso()}.csv`, 'CSV (UTF-8)', ['csv']);
@@ -214,9 +291,12 @@ export function registerIpc(deps: IpcDeps): void {
     return { canceled: false, preview };
   });
 
-  handle('import:commit', (token: unknown, options: unknown) =>
-    commitImport(validateToken(token), validateImportOptions(options), store),
-  );
+  handle('import:commit', async (token: unknown, options: unknown) => {
+    const validToken = validateToken(token);
+    const validOptions = validateImportOptions(options);
+    await createBackup(store, 'pre-import');
+    return commitImport(validToken, validOptions, store);
+  });
 
   handle('data:restore', async () => {
     const win = getMainWindow();
@@ -236,8 +316,9 @@ export function registerIpc(deps: IpcDeps): void {
   });
 
   handle('data:seed', () => store.seedDemo());
-  handle('data:reset', (confirm: unknown) => {
+  handle('data:reset', async (confirm: unknown) => {
     validateConfirm(confirm);
+    await createBackup(store, 'pre-reset');
     store.resetAll();
   });
   handle('data:stats', () => store.stats());

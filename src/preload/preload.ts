@@ -30,9 +30,34 @@ const api: EvergrowApi = {
   importFile: {
     preview: () => ipcRenderer.invoke('import:preview'),
     commit: (token, options) => ipcRenderer.invoke('import:commit', token, options),
+    history: () => ipcRenderer.invoke('import:history'),
+    undo: (batchId) => ipcRenderer.invoke('import:undo', batchId),
+  },
+  shipments: {
+    list: (filter) => ipcRenderer.invoke('shipments:list', filter),
+    get: (reference) => ipcRenderer.invoke('shipments:get', reference),
+  },
+  debts: {
+    list: () => ipcRenderer.invoke('debts:list'),
+    pay: (id, amount) => ipcRenderer.invoke('debts:pay', id, amount),
+  },
+  attachments: {
+    list: (transactionId) => ipcRenderer.invoke('attachments:list', transactionId),
+    add: (transactionId) => ipcRenderer.invoke('attachments:add', transactionId),
+    open: (id) => ipcRenderer.invoke('attachments:open', id),
+    remove: (id) => ipcRenderer.invoke('attachments:remove', id),
+  },
+  budgets: {
+    get: (month) => ipcRenderer.invoke('budgets:get', month),
+    save: (input) => ipcRenderer.invoke('budgets:save', input),
+    remove: (categoryId, month) => ipcRenderer.invoke('budgets:remove', categoryId, month),
+    copyPrevious: (month) => ipcRenderer.invoke('budgets:copy-previous', month),
   },
   data: {
     backup: () => ipcRenderer.invoke('data:backup'),
+    backupInfo: () => ipcRenderer.invoke('data:backup-info'),
+    backupNow: () => ipcRenderer.invoke('data:backup-now'),
+    openBackupFolder: () => ipcRenderer.invoke('data:open-backup-folder'),
     restore: () => ipcRenderer.invoke('data:restore'),
     openFolder: () => ipcRenderer.invoke('data:open-folder'),
     seedDemo: () => ipcRenderer.invoke('data:seed'),

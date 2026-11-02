@@ -4,6 +4,7 @@ import path from 'node:path';
 import { Store } from './db';
 import { registerIpc } from './ipc';
 import { initUpdater } from './updater';
+import { ensureDailyBackup } from './backups';
 
 const devServerUrl = process.env.VITE_DEV_SERVER_URL;
 const preloadPath = path.join(__dirname, 'preload.cjs');
@@ -53,6 +54,11 @@ async function bootstrap(): Promise<void> {
       mainWindow.webContents.send('update:state', state);
     }
   });
+
+  const activeStore = store;
+  setTimeout(() => {
+    void ensureDailyBackup(activeStore).catch((error) => console.error('[auto-backup]', error));
+  }, 4000);
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

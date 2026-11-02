@@ -4,17 +4,29 @@ import path from 'node:path';
 import { monthBounds, pad, shiftMonth, todayIso } from '../shared/dates';
 import { DEFAULT_THEME, getThemePreset, type ThemeSettings } from '../shared/theme';
 import type {
+  AttachmentMeta,
+  BudgetData,
+  BudgetInput,
+  BudgetRow,
   Category,
   CategoryInput,
   CategoryTotal,
   CompanySettings,
   DashboardData,
   DataStats,
+  DebtData,
+  DebtItem,
+  DebtStatus,
+  ImportBatch,
   ImportResult,
+  ImportUndoResult,
   Method,
   MonthPoint,
   ReportData,
   SeedResult,
+  ShipmentDetail,
+  ShipmentFilter,
+  ShipmentSummary,
   Transaction,
   TxFilter,
   TxInput,
@@ -71,6 +83,13 @@ interface RawTxRow {
   containerSize: string;
   carrier: string;
   detailsJson: string;
+  dueDate: string;
+  paidAmount: number;
+  currency: Transaction['currency'];
+  originalAmount: number;
+  exchangeRate: number;
+  attachmentCount: number;
+  importBatchId: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -91,6 +110,11 @@ export interface ImportTransactionRow {
   containerSize: string;
   carrier: string;
   details: Record<string, number>;
+  dueDate: string;
+  paidAmount: number;
+  currency: Transaction['currency'];
+  originalAmount: number;
+  exchangeRate: number;
   sourceKey: string;
 }
 
@@ -101,6 +125,10 @@ const TX_SELECT = `
          t.goods_name AS goodsName, t.goods_type AS goodsType,
          t.container_no AS containerNo, t.container_size AS containerSize,
          t.carrier, t.details_json AS detailsJson,
+         t.due_date AS dueDate, t.paid_amount AS paidAmount, t.currency,
+         t.original_amount AS originalAmount, t.exchange_rate AS exchangeRate,
+         t.import_batch_id AS importBatchId,
+         (SELECT COUNT(*) FROM attachments a WHERE a.transaction_id = t.id) AS attachmentCount,
          t.created_at AS createdAt, t.updated_at AS updatedAt
   FROM transactions t
   JOIN categories c ON c.id = t.category_id
@@ -155,6 +183,12 @@ export class Store {
         carrier TEXT NOT NULL DEFAULT '',
         details_json TEXT NOT NULL DEFAULT '{}',
         source_key TEXT,
+        due_date TEXT NOT NULL DEFAULT '',
+        paid_amount INTEGER NOT NULL DEFAULT 0,
+        currency TEXT NOT NULL DEFAULT 'VND',
+        original_amount REAL NOT NULL DEFAULT 0,
+        exchange_rate REAL NOT NULL DEFAULT 1,
+        import_batch_id TEXT,
         created_at TEXT NOT NULL DEFAULT (datetime('now')),
         updated_at TEXT NOT NULL DEFAULT (datetime('now'))
       );
@@ -162,6 +196,38 @@ export class Store {
       CREATE INDEX IF NOT EXISTS idx_tx_occurred ON transactions(occurred_on);
       CREATE INDEX IF NOT EXISTS idx_tx_kind ON transactions(kind);
       CREATE INDEX IF NOT EXISTS idx_tx_category ON transactions(category_id);
+
+      CREATE TABLE IF NOT EXISTS attachments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        transaction_id INTEGER NOT NULL REFERENCES transactions(id) ON DELETE CASCADE,
+        file_name TEXT NOT NULL,
+        mime_type TEXT NOT NULL,
+        size INTEGER NOT NULL,
+        data BLOB NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_attachments_tx ON attachments(transaction_id);
+
+      CREATE TABLE IF NOT EXISTS import_batches (
+        id TEXT PRIMARY KEY,
+        file_name TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        inserted INTEGER NOT NULL DEFAULT 0,
+        income INTEGER NOT NULL DEFAULT 0,
+        expense INTEGER NOT NULL DEFAULT 0,
+        created_category_ids TEXT NOT NULL DEFAULT '[]'
+      );
+
+      CREATE TABLE IF NOT EXISTS budgets (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        category_id INTEGER NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
+        month TEXT NOT NULL,
+        amount INTEGER NOT NULL CHECK (amount > 0),
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE (category_id, month)
+      );
+      CREATE INDEX IF NOT EXISTS idx_budgets_month ON budgets(month);
 
       CREATE TABLE IF NOT EXISTS app_settings (
         key TEXT PRIMARY KEY,
@@ -193,14 +259,29 @@ export class Store {
       ['carrier', "carrier TEXT NOT NULL DEFAULT ''"],
       ['details_json', "details_json TEXT NOT NULL DEFAULT '{}'"],
       ['source_key', 'source_key TEXT'],
+      ['due_date', "due_date TEXT NOT NULL DEFAULT ''"],
+      ['paid_amount', 'paid_amount INTEGER NOT NULL DEFAULT 0'],
+      ['currency', "currency TEXT NOT NULL DEFAULT 'VND'"],
+      ['original_amount', 'original_amount REAL NOT NULL DEFAULT 0'],
+      ['exchange_rate', 'exchange_rate REAL NOT NULL DEFAULT 1'],
+      ['import_batch_id', 'import_batch_id TEXT'],
     ];
+    const addedPaid = !columns.has('paid_amount');
+    const addedCurrency = !columns.has('currency');
     for (const [name, definition] of additions) {
       if (!columns.has(name)) db.exec(`ALTER TABLE transactions ADD COLUMN ${definition}`);
+    }
+    if (addedPaid) {
+      db.exec("UPDATE transactions SET paid_amount = amount WHERE due_date = '' OR due_date IS NULL");
+    }
+    if (addedCurrency) {
+      db.exec("UPDATE transactions SET currency = 'VND', original_amount = amount, exchange_rate = 1");
     }
     db.exec(`
       CREATE UNIQUE INDEX IF NOT EXISTS idx_tx_source_key
         ON transactions(source_key) WHERE source_key IS NOT NULL;
-      PRAGMA user_version = 3;
+      CREATE INDEX IF NOT EXISTS idx_tx_import_batch ON transactions(import_batch_id);
+      PRAGMA user_version = 4;
     `);
   }
 
@@ -366,8 +447,9 @@ export class Store {
       .prepare(
         `INSERT INTO transactions
            (kind, amount, occurred_on, category_id, party, note, method,
-            reference, port, goods_name, goods_type, container_no, container_size, carrier, details_json)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            reference, port, goods_name, goods_type, container_no, container_size, carrier, details_json,
+            due_date, paid_amount, currency, original_amount, exchange_rate)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         input.kind,
@@ -385,6 +467,11 @@ export class Store {
         input.containerSize,
         input.carrier,
         JSON.stringify(input.details),
+        input.dueDate,
+        input.paidAmount,
+        input.currency,
+        input.originalAmount,
+        input.exchangeRate,
       );
     return this.getTransaction(Number(result.lastInsertRowid))!;
   }
@@ -398,7 +485,9 @@ export class Store {
         `UPDATE transactions
          SET kind = ?, amount = ?, occurred_on = ?, category_id = ?, party = ?, note = ?, method = ?,
              reference = ?, port = ?, goods_name = ?, goods_type = ?, container_no = ?,
-             container_size = ?, carrier = ?, details_json = ?, updated_at = datetime('now')
+             container_size = ?, carrier = ?, details_json = ?,
+             due_date = ?, paid_amount = ?, currency = ?, original_amount = ?, exchange_rate = ?,
+             updated_at = datetime('now')
          WHERE id = ?`,
       )
       .run(
@@ -417,6 +506,11 @@ export class Store {
         input.containerSize,
         input.carrier,
         JSON.stringify(input.details),
+        input.dueDate,
+        input.paidAmount,
+        input.currency,
+        input.originalAmount,
+        input.exchangeRate,
         id,
       );
     return this.getTransaction(id)!;
@@ -432,7 +526,7 @@ export class Store {
     return Boolean(this.db.prepare('SELECT 1 FROM transactions WHERE source_key = ?').get(sourceKey));
   }
 
-  importRows(rows: ImportTransactionRow[]): ImportResult {
+  importRows(rows: ImportTransactionRow[], batch?: { id: string; fileName: string }): ImportResult {
     const findCategory = this.db.prepare(
       'SELECT id FROM categories WHERE kind = ? AND name = ? COLLATE NOCASE',
     );
@@ -441,8 +535,9 @@ export class Store {
     const insert = this.db.prepare(
       `INSERT INTO transactions
          (kind, amount, occurred_on, category_id, party, note, method,
-          reference, port, goods_name, goods_type, container_no, container_size, carrier, details_json, source_key)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          reference, port, goods_name, goods_type, container_no, container_size, carrier, details_json,
+          source_key, due_date, paid_amount, currency, original_amount, exchange_rate, import_batch_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
 
     let income = 0;
@@ -451,6 +546,7 @@ export class Store {
     let duplicates = 0;
     let skipped = 0;
     let categoriesCreated = 0;
+    const createdCategoryIds: number[] = [];
     const seen = new Set<string>();
 
     this.db.exec('BEGIN IMMEDIATE');
@@ -472,6 +568,7 @@ export class Store {
           const color = row.kind === 'income' ? '#177245' : '#B42318';
           const result = insertCategory.run(row.categoryName.trim(), row.kind, color);
           category = { id: Number(result.lastInsertRowid) };
+          createdCategoryIds.push(category.id);
           categoriesCreated += 1;
         }
         insert.run(
@@ -491,17 +588,371 @@ export class Store {
           row.carrier,
           JSON.stringify(row.details),
           row.sourceKey || null,
+          row.dueDate,
+          row.paidAmount,
+          row.currency,
+          row.originalAmount,
+          row.exchangeRate,
+          batch?.id ?? null,
         );
         inserted += 1;
         if (row.kind === 'income') income += row.amount;
         else expense += row.amount;
+      }
+      if (batch && inserted > 0) {
+        this.db
+          .prepare(
+            `INSERT INTO import_batches (id, file_name, inserted, income, expense, created_category_ids)
+             VALUES (?, ?, ?, ?, ?, ?)`,
+          )
+          .run(batch.id, batch.fileName, inserted, income, expense, JSON.stringify(createdCategoryIds));
       }
       this.db.exec('COMMIT');
     } catch (error) {
       this.db.exec('ROLLBACK');
       throw error;
     }
-    return { income, expense, inserted, duplicates, skipped, categoriesCreated };
+    return {
+      income,
+      expense,
+      inserted,
+      duplicates,
+      skipped,
+      categoriesCreated,
+      batchId: batch && inserted > 0 ? batch.id : undefined,
+    };
+  }
+
+  listImportBatches(): ImportBatch[] {
+    return this.db
+      .prepare(
+        `SELECT id, file_name AS fileName, created_at AS createdAt,
+                inserted, income, expense
+         FROM import_batches ORDER BY created_at DESC LIMIT 50`,
+      )
+      .all() as unknown as ImportBatch[];
+  }
+
+  undoImportBatch(id: string): ImportUndoResult {
+    const batch = this.db
+      .prepare('SELECT created_category_ids FROM import_batches WHERE id = ?')
+      .get(id) as { created_category_ids: string } | undefined;
+    if (!batch) throw new Error('Không tìm thấy lần nhập dữ liệu.');
+
+    let removed = 0;
+    let categoriesRemoved = 0;
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      const result = this.db.prepare('DELETE FROM transactions WHERE import_batch_id = ?').run(id);
+      removed = Number(result.changes);
+      this.db.prepare('DELETE FROM import_batches WHERE id = ?').run(id);
+      let categoryIds: number[] = [];
+      try {
+        const parsed = JSON.parse(batch.created_category_ids) as unknown;
+        if (Array.isArray(parsed)) categoryIds = parsed.filter((value): value is number => typeof value === 'number');
+      } catch {
+        categoryIds = [];
+      }
+      for (const categoryId of categoryIds) {
+        const used = this.db
+          .prepare('SELECT COUNT(*) AS count FROM transactions WHERE category_id = ?')
+          .get(categoryId) as { count: number };
+        if (used.count === 0) {
+          const deleted = this.db.prepare('DELETE FROM categories WHERE id = ?').run(categoryId);
+          categoriesRemoved += Number(deleted.changes);
+        }
+      }
+      this.db.exec('COMMIT');
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
+    return { removed, categoriesRemoved };
+  }
+
+  private shipmentWhere(filter: ShipmentFilter): { clause: string; params: string[] } {
+    const parts = ["t.reference <> ''"];
+    const params: string[] = [];
+    if (filter.from) {
+      parts.push('t.occurred_on >= ?');
+      params.push(filter.from);
+    }
+    if (filter.to) {
+      parts.push('t.occurred_on <= ?');
+      params.push(filter.to);
+    }
+    if (filter.q) {
+      const query = `%${escapeLike(filter.q)}%`;
+      parts.push(
+        `(t.reference LIKE ? ESCAPE '\\' OR t.party LIKE ? ESCAPE '\\'
+          OR t.goods_name LIKE ? ESCAPE '\\' OR t.goods_type LIKE ? ESCAPE '\\'
+          OR t.container_no LIKE ? ESCAPE '\\' OR t.carrier LIKE ? ESCAPE '\\')`,
+      );
+      params.push(query, query, query, query, query, query);
+    }
+    return { clause: `WHERE ${parts.join(' AND ')}`, params };
+  }
+
+  private mapShipment(row: Record<string, unknown>): ShipmentSummary {
+    const income = Number(row.income ?? 0);
+    const expense = Number(row.expense ?? 0);
+    const profit = income - expense;
+    const split = (value: unknown): string[] =>
+      String(value ?? '')
+        .split(',')
+        .map((part) => part.trim())
+        .filter(Boolean);
+    return {
+      reference: String(row.reference ?? ''),
+      firstDate: String(row.firstDate ?? ''),
+      lastDate: String(row.lastDate ?? ''),
+      customer: String(row.customer ?? ''),
+      goodsType: String(row.goodsType ?? ''),
+      goodsNames: [...new Set(split(row.goodsNames))],
+      containers: [...new Set(split(row.containers))],
+      count: Number(row.count ?? 0),
+      income,
+      expense,
+      profit,
+      margin: income > 0 ? Math.round((profit / income) * 1000) / 10 : 0,
+    };
+  }
+
+  listShipments(filter: ShipmentFilter): ShipmentSummary[] {
+    const { clause, params } = this.shipmentWhere(filter);
+    const rows = this.db
+      .prepare(
+        `SELECT t.reference,
+                MIN(t.occurred_on) AS firstDate,
+                MAX(t.occurred_on) AS lastDate,
+                COALESCE(MAX(CASE WHEN t.kind = 'income' THEN NULLIF(t.party, '') END),
+                         MAX(NULLIF(t.party, '')), '') AS customer,
+                COALESCE(MAX(NULLIF(t.goods_type, '')), '') AS goodsType,
+                GROUP_CONCAT(DISTINCT NULLIF(t.goods_name, '')) AS goodsNames,
+                GROUP_CONCAT(DISTINCT NULLIF(t.container_no, '')) AS containers,
+                COUNT(*) AS count,
+                COALESCE(SUM(CASE WHEN t.kind = 'income' THEN t.amount ELSE 0 END), 0) AS income,
+                COALESCE(SUM(CASE WHEN t.kind = 'expense' THEN t.amount ELSE 0 END), 0) AS expense
+         FROM transactions t
+         ${clause}
+         GROUP BY t.reference
+         ORDER BY lastDate DESC, t.reference DESC
+         LIMIT 1000`,
+      )
+      .all(...params) as unknown as Record<string, unknown>[];
+    return rows.map((row) => this.mapShipment(row));
+  }
+
+  getShipment(reference: string): ShipmentDetail {
+    const row = this.db
+      .prepare(
+        `SELECT t.reference,
+                MIN(t.occurred_on) AS firstDate,
+                MAX(t.occurred_on) AS lastDate,
+                COALESCE(MAX(CASE WHEN t.kind = 'income' THEN NULLIF(t.party, '') END),
+                         MAX(NULLIF(t.party, '')), '') AS customer,
+                COALESCE(MAX(NULLIF(t.goods_type, '')), '') AS goodsType,
+                GROUP_CONCAT(DISTINCT NULLIF(t.goods_name, '')) AS goodsNames,
+                GROUP_CONCAT(DISTINCT NULLIF(t.container_no, '')) AS containers,
+                COUNT(*) AS count,
+                COALESCE(SUM(CASE WHEN t.kind = 'income' THEN t.amount ELSE 0 END), 0) AS income,
+                COALESCE(SUM(CASE WHEN t.kind = 'expense' THEN t.amount ELSE 0 END), 0) AS expense
+         FROM transactions t WHERE t.reference = ? GROUP BY t.reference`,
+      )
+      .get(reference) as Record<string, unknown> | undefined;
+    if (!row) throw new Error('Không tìm thấy lô hàng với số tờ khai này.');
+    const transactions = this.db
+      .prepare(`${TX_SELECT} WHERE t.reference = ? ORDER BY t.occurred_on ASC, t.id ASC`)
+      .all(reference) as unknown[];
+    return {
+      summary: this.mapShipment(row),
+      transactions: transactions.map((item) => this.toTransaction(item)),
+    };
+  }
+
+  private buildDebtItem(transaction: Transaction): DebtItem {
+    const outstanding = Math.max(0, transaction.amount - transaction.paidAmount);
+    const today = todayIso();
+    const dueTimestamp = transaction.dueDate ? Date.parse(`${transaction.dueDate}T00:00:00Z`) : NaN;
+    const todayTimestamp = Date.parse(`${today}T00:00:00Z`);
+    const daysOverdue = Number.isFinite(dueTimestamp)
+      ? Math.max(0, Math.floor((todayTimestamp - dueTimestamp) / 86400000))
+      : 0;
+    let status: DebtStatus;
+    if (outstanding <= 0) status = 'paid';
+    else if (daysOverdue > 0) status = 'overdue';
+    else if (transaction.paidAmount > 0) status = 'partial';
+    else status = 'unpaid';
+    return { transaction, outstanding, status, daysOverdue };
+  }
+
+  listDebts(): DebtData {
+    const rows = this.db
+      .prepare(`${TX_SELECT} WHERE t.due_date <> '' ORDER BY t.due_date ASC, t.id ASC`)
+      .all() as unknown[];
+    const items = rows.map((row) => this.buildDebtItem(this.toTransaction(row)));
+    let receivable = 0;
+    let payable = 0;
+    let overdueReceivable = 0;
+    let overduePayable = 0;
+    let overdueCount = 0;
+    const agingMap = new Map<string, { label: string; receivable: number; payable: number }>([
+      ['current', { label: 'Chưa đến hạn', receivable: 0, payable: 0 }],
+      ['1-30', { label: 'Quá hạn 1–30 ngày', receivable: 0, payable: 0 }],
+      ['31-60', { label: 'Quá hạn 31–60 ngày', receivable: 0, payable: 0 }],
+      ['61-90', { label: 'Quá hạn 61–90 ngày', receivable: 0, payable: 0 }],
+      ['90+', { label: 'Quá hạn trên 90 ngày', receivable: 0, payable: 0 }],
+    ]);
+    for (const item of items) {
+      if (item.outstanding <= 0) continue;
+      const key =
+        item.daysOverdue <= 0
+          ? 'current'
+          : item.daysOverdue <= 30
+            ? '1-30'
+            : item.daysOverdue <= 60
+              ? '31-60'
+              : item.daysOverdue <= 90
+                ? '61-90'
+                : '90+';
+      const bucket = agingMap.get(key)!;
+      if (item.transaction.kind === 'income') {
+        receivable += item.outstanding;
+        bucket.receivable += item.outstanding;
+        if (item.daysOverdue > 0) overdueReceivable += item.outstanding;
+      } else {
+        payable += item.outstanding;
+        bucket.payable += item.outstanding;
+        if (item.daysOverdue > 0) overduePayable += item.outstanding;
+      }
+      if (item.daysOverdue > 0) overdueCount += 1;
+    }
+    return {
+      items,
+      receivable,
+      payable,
+      overdueReceivable,
+      overduePayable,
+      tracked: items.length,
+      overdueCount,
+      aging: [...agingMap.values()],
+    };
+  }
+
+  payDebt(id: number, amount: number): DebtItem {
+    const current = this.getTransaction(id);
+    if (!current) throw new Error('Không tìm thấy giao dịch.');
+    if (!current.dueDate) throw new Error('Giao dịch này không theo dõi công nợ.');
+    const outstanding = Math.max(0, current.amount - current.paidAmount);
+    if (outstanding === 0) throw new Error('Giao dịch đã được thanh toán đủ.');
+    if (amount > outstanding) throw new Error('Số tiền thanh toán vượt quá số còn nợ.');
+    this.db
+      .prepare("UPDATE transactions SET paid_amount = paid_amount + ?, updated_at = datetime('now') WHERE id = ?")
+      .run(amount, id);
+    return this.buildDebtItem(this.getTransaction(id)!);
+  }
+
+  listAttachments(transactionId: number): AttachmentMeta[] {
+    return this.db
+      .prepare(
+        `SELECT id, transaction_id AS transactionId, file_name AS fileName,
+                mime_type AS mimeType, size, created_at AS createdAt
+         FROM attachments WHERE transaction_id = ? ORDER BY created_at ASC, id ASC`,
+      )
+      .all(transactionId) as unknown as AttachmentMeta[];
+  }
+
+  addAttachment(transactionId: number, fileName: string, mimeType: string, data: Buffer): AttachmentMeta {
+    if (!this.getTransaction(transactionId)) throw new Error('Không tìm thấy giao dịch.');
+    const result = this.db
+      .prepare(
+        `INSERT INTO attachments (transaction_id, file_name, mime_type, size, data)
+         VALUES (?, ?, ?, ?, ?)`,
+      )
+      .run(transactionId, fileName, mimeType, data.length, data);
+    return this.db
+      .prepare(
+        `SELECT id, transaction_id AS transactionId, file_name AS fileName,
+                mime_type AS mimeType, size, created_at AS createdAt
+         FROM attachments WHERE id = ?`,
+      )
+      .get(Number(result.lastInsertRowid)) as unknown as AttachmentMeta;
+  }
+
+  getAttachment(id: number): { meta: AttachmentMeta; data: Uint8Array } | undefined {
+    const row = this.db
+      .prepare(
+        `SELECT id, transaction_id AS transactionId, file_name AS fileName,
+                mime_type AS mimeType, size, created_at AS createdAt, data
+         FROM attachments WHERE id = ?`,
+      )
+      .get(id) as (AttachmentMeta & { data: Uint8Array }) | undefined;
+    if (!row) return undefined;
+    const { data, ...meta } = row;
+    return { meta, data };
+  }
+
+  removeAttachment(id: number): void {
+    const result = this.db.prepare('DELETE FROM attachments WHERE id = ?').run(id);
+    if (Number(result.changes) === 0) throw new Error('Không tìm thấy chứng từ.');
+  }
+
+  getBudgets(month: string): BudgetData {
+    const rows = this.db
+      .prepare(
+        `SELECT c.id AS categoryId, c.name AS categoryName,
+                COALESCE(b.amount, 0) AS budget,
+                COALESCE(SUM(CASE WHEN t.kind = 'expense' THEN t.amount ELSE 0 END), 0) AS spent
+         FROM categories c
+         LEFT JOIN budgets b ON b.category_id = c.id AND b.month = ?
+         LEFT JOIN transactions t ON t.category_id = c.id
+           AND t.kind = 'expense' AND substr(t.occurred_on, 1, 7) = ?
+         WHERE c.kind = 'expense'
+         GROUP BY c.id
+         ORDER BY budget DESC, spent DESC, c.name COLLATE NOCASE`,
+      )
+      .all(month, month) as unknown as { categoryId: number; categoryName: string; budget: number; spent: number }[];
+    const normalized: BudgetRow[] = rows.map((row) => ({
+      ...row,
+      usage: row.budget > 0 ? Math.round((row.spent / row.budget) * 1000) / 10 : 0,
+    }));
+    return {
+      month,
+      totalBudget: normalized.reduce((sum, row) => sum + row.budget, 0),
+      totalSpent: normalized.filter((row) => row.budget > 0).reduce((sum, row) => sum + row.spent, 0),
+      rows: normalized,
+    };
+  }
+
+  saveBudget(input: BudgetInput): BudgetData {
+    const category = this.categoryById(input.categoryId);
+    if (!category) throw new Error('Không tìm thấy danh mục.');
+    if (category.kind !== 'expense') throw new Error('Ngân sách chỉ áp dụng cho danh mục chi phí.');
+    this.db
+      .prepare(
+        `INSERT INTO budgets (category_id, month, amount) VALUES (?, ?, ?)
+         ON CONFLICT(category_id, month) DO UPDATE SET amount = excluded.amount,
+           updated_at = datetime('now')`,
+      )
+      .run(input.categoryId, input.month, input.amount);
+    return this.getBudgets(input.month);
+  }
+
+  removeBudget(categoryId: number, month: string): BudgetData {
+    this.db.prepare('DELETE FROM budgets WHERE category_id = ? AND month = ?').run(categoryId, month);
+    return this.getBudgets(month);
+  }
+
+  copyPreviousBudgets(month: string): BudgetData {
+    const previous = shiftMonth(month, -1);
+    this.db
+      .prepare(
+        `INSERT INTO budgets (category_id, month, amount)
+         SELECT category_id, ?, amount FROM budgets WHERE month = ?
+         ON CONFLICT(category_id, month) DO NOTHING`,
+      )
+      .run(month, previous);
+    return this.getBudgets(month);
   }
 
   private summary(from: string, to: string): { income: number; expense: number; count: number } {
@@ -662,8 +1113,10 @@ export class Store {
     const today = todayIso();
     const currentMonth = today.slice(0, 7);
     const insert = this.db.prepare(
-      `INSERT INTO transactions (kind, amount, occurred_on, category_id, party, note, method)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO transactions
+         (kind, amount, occurred_on, category_id, party, note, method,
+          paid_amount, currency, original_amount, exchange_rate)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'VND', ?, 1)`,
     );
 
     const salesParties = ['Công ty Sao Việt', 'Khách hàng Minh Anh', 'Công ty Hòa Bình', 'Đối tác An Phú', 'Công ty Tân Long'];
@@ -685,7 +1138,7 @@ export class Store {
       if (date > today) return;
       const categoryId = find(kind, categoryName);
       if (!categoryId) return;
-      insert.run(kind, amount, date, categoryId, party, note, method);
+      insert.run(kind, amount, date, categoryId, party, note, method, amount, amount);
       inserted += 1;
     };
 

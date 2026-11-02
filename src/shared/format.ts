@@ -1,7 +1,17 @@
 const numberFormatter = new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 0 });
+const decimalFormatter = new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 2 });
 
 export function formatNumber(value: number): string {
   return numberFormatter.format(Math.round(value));
+}
+
+export function formatDecimal(value: number): string {
+  return decimalFormatter.format(value);
+}
+
+export function formatCurrencyAmount(value: number, currency: string): string {
+  if (currency === 'VND') return `${formatNumber(value)} đ`;
+  return `${decimalFormatter.format(value)} ${currency}`;
 }
 
 export function formatVnd(value: number): string {

@@ -3,6 +3,7 @@ import {
   ChartColumn,
   Check,
   CircleAlert,
+  Container,
   Download,
   Info,
   LayoutDashboard,
@@ -11,17 +12,32 @@ import {
   RefreshCw,
   Settings,
   Tags,
+  Target,
+  WalletCards,
 } from 'lucide-react';
 import type { UpdateState } from '../../shared/types';
 import { LOGO_LEAF, LOGO_WORDMARK } from '../../shared/brand';
 
-const NAV = [
-  { path: '/dashboard', label: 'Tổng quan', icon: LayoutDashboard },
-  { path: '/transactions', label: 'Giao dịch', icon: ArrowLeftRight },
-  { path: '/categories', label: 'Danh mục', icon: Tags },
-  { path: '/reports', label: 'Báo cáo', icon: ChartColumn },
-  { path: '/appearance', label: 'Giao diện', icon: Palette },
-  { path: '/settings', label: 'Cài đặt', icon: Settings },
+const NAV_SECTIONS = [
+  {
+    label: 'Sổ sách',
+    items: [
+      { path: '/dashboard', label: 'Tổng quan', icon: LayoutDashboard },
+      { path: '/transactions', label: 'Giao dịch', icon: ArrowLeftRight },
+      { path: '/shipments', label: 'Lô hàng', icon: Container },
+      { path: '/debts', label: 'Công nợ', icon: WalletCards },
+      { path: '/budgets', label: 'Ngân sách', icon: Target },
+      { path: '/categories', label: 'Danh mục', icon: Tags },
+      { path: '/reports', label: 'Báo cáo', icon: ChartColumn },
+    ],
+  },
+  {
+    label: 'Hệ thống',
+    items: [
+      { path: '/appearance', label: 'Giao diện', icon: Palette },
+      { path: '/settings', label: 'Cài đặt', icon: Settings },
+    ],
+  },
 ];
 
 function updateSummary(state: UpdateState): { label: string; icon: React.ReactNode; tone: string } {
@@ -74,21 +90,26 @@ export function Sidebar({
       </a>
 
       <nav className="nav" aria-label="Điều hướng chính">
-        {NAV.map((item) => {
-          const Icon = item.icon;
-          const active = path === item.path;
-          return (
-            <a
-              key={item.path}
-              href={`#${item.path}`}
-              className={`nav-item${active ? ' active' : ''}`}
-              aria-current={active ? 'page' : undefined}
-            >
-              <Icon size={17} strokeWidth={active ? 2 : 1.8} />
-              <span>{item.label}</span>
-            </a>
-          );
-        })}
+        {NAV_SECTIONS.map((section) => (
+          <div className="nav-section" key={section.label}>
+            <span className="nav-section-label">{section.label}</span>
+            {section.items.map((item) => {
+              const Icon = item.icon;
+              const active = path === item.path;
+              return (
+                <a
+                  key={item.path}
+                  href={`#${item.path}`}
+                  className={`nav-item${active ? ' active' : ''}`}
+                  aria-current={active ? 'page' : undefined}
+                >
+                  <Icon size={17} strokeWidth={active ? 2 : 1.8} />
+                  <span>{item.label}</span>
+                </a>
+              );
+            })}
+          </div>
+        ))}
       </nav>
 
       <div className="sidebar-bottom">

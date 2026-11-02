@@ -173,8 +173,32 @@ input:focus-visible {
 
 .nav {
   display: flex;
+  flex: 1;
   flex-direction: column;
   gap: 2px;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.nav-section {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.nav-section + .nav-section {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.nav-section-label {
+  padding: 0 10px 6px;
+  font-size: 8.5px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--muted);
 }
 
 .nav-item {
@@ -1135,6 +1159,20 @@ input:focus-visible {
   height: 34px;
 }
 
+.filter-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 9px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 9px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 10.5px;
+  white-space: nowrap;
+}
+
 .table-card {
   overflow: hidden;
 }
@@ -1740,6 +1778,209 @@ tr:hover .row-actions .icon-btn,
 
 .amount-wrap {
   position: relative;
+}
+
+.amount-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.amount-head .field-label {
+  white-space: nowrap;
+}
+
+.amount-head .currency-select {
+  width: 158px;
+  flex: 0 1 158px;
+}
+
+.currency-select {
+  width: auto;
+}
+
+.currency-select select {
+  height: 28px;
+  padding: 0 26px 0 8px;
+  border-radius: 7px;
+  font-size: 9.5px;
+}
+
+.currency-select .select-chevron {
+  right: 7px;
+}
+
+.fx-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--soft);
+}
+
+.fx-rate {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 9px;
+  color: var(--muted);
+}
+
+.fx-rate .input {
+  height: 34px;
+  font-size: 11px;
+}
+
+.fx-total {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 9px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.fx-total strong {
+  font-size: 12px;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.debt-block {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--soft);
+}
+
+.check-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  cursor: pointer;
+}
+
+.check-row input {
+  width: 15px;
+  height: 15px;
+  margin-top: 2px;
+  accent-color: var(--ink);
+}
+
+.check-row span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.check-row strong {
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.check-row small {
+  font-size: 9.5px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.debt-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 8px;
+  border-top: 1px dashed var(--line);
+  font-size: 10.5px;
+  color: var(--muted);
+}
+
+.debt-summary strong {
+  font-size: 13px;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.attachments-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.attachments-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.attachments-head .field-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.attachments-head .btn-sm {
+  height: 28px;
+  padding: 0 8px;
+  font-size: 10px;
+}
+
+.attachment-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 99px;
+  background: var(--surface-muted);
+  color: var(--muted);
+  font-size: 8.5px;
+}
+
+.attachment-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.attachment-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  font-size: 10.5px;
+}
+
+.attachment-item svg {
+  flex: none;
+  color: var(--muted);
+}
+
+.attachment-name {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.attachment-size {
+  font-size: 9px;
+  color: var(--muted);
+  white-space: nowrap;
 }
 
 .amount-input {
@@ -2559,6 +2800,309 @@ tr:hover .row-actions .icon-btn,
   height: 30px;
   width: auto;
   filter: var(--logo-filter);
+}
+
+/* ---------- Shipments, debts, budgets ---------- */
+
+.filter-state.filter-note {
+  margin-left: auto;
+  border-style: solid;
+  border-color: transparent;
+  background: transparent;
+  padding-right: 0;
+}
+
+.shipment-table th:nth-child(4),
+.shipment-table td:nth-child(4) {
+  max-width: 170px;
+}
+
+.ref-cell {
+  font-family: 'Cascadia Mono', Consolas, monospace;
+  font-size: 10.5px;
+  white-space: nowrap;
+  color: var(--ink-2);
+}
+
+.container-cell {
+  max-width: 180px;
+  font-size: 10.5px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.margin-cell {
+  font-size: 11px;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+
+.shipment-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.shipment-detail .import-summary {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.shipment-detail .import-summary > div {
+  padding: 10px 12px;
+}
+
+.shipment-meta {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--soft);
+}
+
+.shipment-meta > div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.shipment-meta span {
+  font-size: 8.5px;
+  color: var(--muted);
+}
+
+.shipment-meta strong {
+  font-size: 10.5px;
+  font-weight: 500;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.debt-aging {
+  margin-bottom: 12px;
+}
+
+.debt-aging .card-head {
+  padding-bottom: 8px;
+}
+
+.aging-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  border-top: 1px solid var(--line);
+}
+
+.aging-item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 11px 14px;
+  border-left: 1px solid var(--line);
+  min-width: 0;
+}
+
+.aging-item:first-child {
+  border-left: none;
+}
+
+.aging-item span {
+  font-size: 8.5px;
+  color: var(--muted);
+}
+
+.aging-item strong {
+  font-size: 10px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.aging-item strong.income {
+  color: var(--income);
+}
+
+.aging-item strong.expense {
+  color: var(--expense);
+}
+
+.debt-tabs {
+  align-items: center;
+}
+
+.overdue-date {
+  color: var(--expense);
+  font-weight: 500;
+}
+
+.overdue-days {
+  display: block;
+  margin-top: 1px;
+  font-size: 8.5px;
+  color: var(--expense);
+}
+
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 7px;
+  border-radius: 99px;
+  border: 1px solid var(--line);
+  background: var(--soft);
+  color: var(--ink-2);
+  font-size: 8.5px;
+  white-space: nowrap;
+}
+
+.status-badge.status-overdue {
+  border-color: color-mix(in srgb, var(--expense) 30%, var(--line));
+  background: var(--expense-soft);
+  color: var(--expense);
+}
+
+.status-badge.status-partial {
+  border-color: color-mix(in srgb, var(--warning) 30%, var(--line));
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+
+.status-badge.status-paid {
+  border-color: color-mix(in srgb, var(--income) 26%, var(--line));
+  background: var(--income-soft);
+  color: var(--income);
+}
+
+.budget-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 160px;
+}
+
+.budget-progress .bar-track {
+  flex: 1;
+  min-width: 70px;
+}
+
+.budget-usage {
+  width: 42px;
+  font-size: 9px;
+  color: var(--muted);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.budget-usage.expense {
+  color: var(--expense);
+}
+
+.budget-usage.warning {
+  color: var(--warning);
+}
+
+.budget-fill.expense {
+  background: var(--expense);
+}
+
+.budget-fill.warning {
+  background: var(--warning);
+}
+
+.data-actions.no-pad {
+  padding-top: 0;
+}
+
+.auto-backup {
+  margin: 16px 22px 0;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.auto-backup-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.auto-backup-head > div {
+  min-width: 0;
+}
+
+.auto-backup-head strong {
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.auto-backup-head p {
+  margin: 3px 0 0;
+  font-size: 9.5px;
+  line-height: 1.55;
+  color: var(--muted);
+}
+
+.auto-backup-head svg {
+  flex: none;
+  color: var(--muted);
+}
+
+.auto-backup-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  font-size: 9.5px;
+  color: var(--muted);
+}
+
+.import-history-empty {
+  padding: 8px 22px 18px;
+}
+
+.import-history {
+  display: flex;
+  flex-direction: column;
+  padding: 8px 22px 12px;
+}
+
+.import-history-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.import-history-row:last-child {
+  border-bottom: none;
+}
+
+.import-history-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.import-history-info strong {
+  font-size: 10.5px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.import-history-info span {
+  font-size: 9px;
+  color: var(--muted);
 }
 
 /* ---------- Print ---------- */

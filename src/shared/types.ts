@@ -5,6 +5,23 @@ export type TxKind = 'income' | 'expense';
 export const METHODS = ['cash', 'bank', 'card', 'ewallet', 'other'] as const;
 export type Method = (typeof METHODS)[number];
 
+export const CURRENCIES = ['VND', 'USD', 'EUR', 'CNY'] as const;
+export type Currency = (typeof CURRENCIES)[number];
+
+export const CURRENCY_LABELS: Record<Currency, string> = {
+  VND: 'VND – Việt Nam đồng',
+  USD: 'USD – Đô la Mỹ',
+  EUR: 'EUR – Euro',
+  CNY: 'CNY – Nhân dân tệ',
+};
+
+export const CURRENCY_SUFFIX: Record<Currency, string> = {
+  VND: 'đ',
+  USD: 'USD',
+  EUR: 'EUR',
+  CNY: 'CNY',
+};
+
 export const METHOD_LABELS: Record<Method, string> = {
   cash: 'Tiền mặt',
   bank: 'Chuyển khoản',
@@ -46,6 +63,12 @@ export interface Transaction {
   containerSize: string;
   carrier: string;
   details: Record<string, number>;
+  dueDate: string;
+  paidAmount: number;
+  currency: Currency;
+  originalAmount: number;
+  exchangeRate: number;
+  attachmentCount: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -66,6 +89,11 @@ export interface TxInput {
   containerSize: string;
   carrier: string;
   details: Record<string, number>;
+  dueDate: string;
+  paidAmount: number;
+  currency: Currency;
+  originalAmount: number;
+  exchangeRate: number;
 }
 
 export interface TxFilter {
@@ -232,6 +260,103 @@ export interface ImportResult {
   duplicates: number;
   skipped: number;
   categoriesCreated: number;
+  batchId?: string;
+}
+
+export interface ImportBatch {
+  id: string;
+  fileName: string;
+  createdAt: string;
+  inserted: number;
+  income: number;
+  expense: number;
+}
+
+export interface ImportUndoResult {
+  removed: number;
+  categoriesRemoved: number;
+}
+
+export interface AttachmentMeta {
+  id: number;
+  transactionId: number;
+  fileName: string;
+  mimeType: string;
+  size: number;
+  createdAt: string;
+}
+
+export interface ShipmentSummary {
+  reference: string;
+  firstDate: string;
+  lastDate: string;
+  customer: string;
+  goodsType: string;
+  goodsNames: string[];
+  containers: string[];
+  count: number;
+  income: number;
+  expense: number;
+  profit: number;
+  margin: number;
+}
+
+export interface ShipmentDetail {
+  summary: ShipmentSummary;
+  transactions: Transaction[];
+}
+
+export interface ShipmentFilter {
+  from?: string;
+  to?: string;
+  q?: string;
+}
+
+export type DebtStatus = 'unpaid' | 'partial' | 'overdue' | 'paid';
+
+export interface DebtItem {
+  transaction: Transaction;
+  outstanding: number;
+  status: DebtStatus;
+  daysOverdue: number;
+}
+
+export interface DebtData {
+  items: DebtItem[];
+  receivable: number;
+  payable: number;
+  overdueReceivable: number;
+  overduePayable: number;
+  tracked: number;
+  overdueCount: number;
+  aging: { label: string; receivable: number; payable: number }[];
+}
+
+export interface BudgetRow {
+  categoryId: number;
+  categoryName: string;
+  budget: number;
+  spent: number;
+  usage: number;
+}
+
+export interface BudgetData {
+  month: string;
+  totalBudget: number;
+  totalSpent: number;
+  rows: BudgetRow[];
+}
+
+export interface BudgetInput {
+  categoryId: number;
+  month: string;
+  amount: number;
+}
+
+export interface BackupInfo {
+  directory: string;
+  lastBackup: string | null;
+  count: number;
 }
 
 export interface EvergrowApi {
@@ -263,9 +388,34 @@ export interface EvergrowApi {
   importFile: {
     preview(): Promise<ImportPreviewResult>;
     commit(token: string, options: ImportCommitOptions): Promise<ImportResult>;
+    history(): Promise<ImportBatch[]>;
+    undo(batchId: string): Promise<ImportUndoResult>;
+  };
+  shipments: {
+    list(filter: ShipmentFilter): Promise<ShipmentSummary[]>;
+    get(reference: string): Promise<ShipmentDetail>;
+  };
+  debts: {
+    list(): Promise<DebtData>;
+    pay(id: number, amount: number): Promise<DebtItem>;
+  };
+  attachments: {
+    list(transactionId: number): Promise<AttachmentMeta[]>;
+    add(transactionId: number): Promise<AttachmentMeta | null>;
+    open(id: number): Promise<void>;
+    remove(id: number): Promise<void>;
+  };
+  budgets: {
+    get(month: string): Promise<BudgetData>;
+    save(input: BudgetInput): Promise<BudgetData>;
+    remove(categoryId: number, month: string): Promise<BudgetData>;
+    copyPrevious(month: string): Promise<BudgetData>;
   };
   data: {
     backup(): Promise<ExportResult>;
+    backupInfo(): Promise<BackupInfo>;
+    backupNow(): Promise<BackupInfo>;
+    openBackupFolder(): Promise<void>;
     restore(): Promise<{ restored: boolean }>;
     openFolder(): Promise<void>;
     seedDemo(): Promise<SeedResult>;

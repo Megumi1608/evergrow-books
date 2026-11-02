@@ -58,6 +58,8 @@ const KNOWN_HEADERS = new Set([
   'haiquan', 'chietkhau', 'tienkhac', 'tienxe', 'thanhtoantienxe',
   'danhmuc', 'hinhthuc', 'ghichu', 'diengiai', 'noidung', 'sotien', 'sotienvnd',
   '20', '40', 'chitietphi', 'loaigiaodich',
+  'ngoaite', 'congno', 'chungtu', 'hanthanhtoan', 'dathanhtoan', 'datravnd',
+  'connovnd', 'tygia', 'sotiengoc',
 ]);
 
 const DETAIL_EXCLUSIONS = new Set([
@@ -69,6 +71,8 @@ const DETAIL_EXCLUSIONS = new Set([
   'donvivanchuyen', 'donvi', 'nhacungcap', 'socont', 'socontainer', 'container',
   'kichthuoccont', 'loaicont',
   'danhmuc', 'hinhthuc', 'ghichu', 'diengiai', 'noidung', '20', '40', 'chitietphi',
+  'ngoaite', 'congno', 'chungtu', 'hanthanhtoan', 'dathanhtoan', 'datravnd',
+  'connovnd', 'tygia', 'sotiengoc',
 ]);
 
 const pending = new Map<string, PendingImport>();
@@ -296,7 +300,6 @@ function parseSheet(worksheet: ExcelJS.Worksheet): ParsedSheet | null {
     category: pickColumn(columns, 'danhmuc'),
     note: pickColumn(columns, 'ghichu', 'diengiai', 'noidung'),
   };
-  const partyCol = kind === 'expense' ? info.carrier ?? info.customer : info.customer ?? info.carrier;
 
   const valueAt = (row: number, col?: number): unknown => {
     if (!col) return '';
@@ -313,7 +316,9 @@ function parseSheet(worksheet: ExcelJS.Worksheet): ParsedSheet | null {
   for (let rowNumber = header.row + 1; rowNumber <= maxRow; rowNumber += 1) {
     const amount = Math.round(asNumber(valueAt(rowNumber, amountCol)));
     if (!amount) continue;
-    const party = asText(valueAt(rowNumber, partyCol));
+    const carrierValue = asText(valueAt(rowNumber, info.carrier));
+    const customerValue = asText(valueAt(rowNumber, info.customer));
+    const party = kind === 'expense' ? carrierValue || customerValue : customerValue || carrierValue;
     const reference = asText(valueAt(rowNumber, info.reference));
     const goodsName = asText(valueAt(rowNumber, info.goodsName));
     const goodsType = asText(valueAt(rowNumber, info.goodsType));
@@ -366,7 +371,7 @@ function parseSheet(worksheet: ExcelJS.Worksheet): ParsedSheet | null {
       goodsType,
       containerNo,
       containerSize,
-      carrier: kind === 'expense' ? party : asText(valueAt(rowNumber, info.carrier)),
+      carrier: kind === 'expense' ? carrierValue || party : carrierValue,
       note,
       details,
       sheetName: worksheet.name,
@@ -554,11 +559,17 @@ export function commitImport(token: string, options: ImportCommitOptions, store:
       containerSize: row.containerSize,
       carrier: row.carrier,
       details: row.details,
+      dueDate: '',
+      paidAmount: row.amount,
+      currency: 'VND',
+      originalAmount: row.amount,
+      exchangeRate: 1,
       sourceKey: sourceKeyFor({ ...row, date }),
     });
   }
 
-  const result = store.importRows(rows);
+  const batchId = randomUUID();
+  const result = store.importRows(rows, { id: batchId, fileName: batch.fileName });
   pending.delete(token);
   return { ...result, skipped: result.skipped + skipped };
 }

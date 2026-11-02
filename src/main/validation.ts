@@ -1,7 +1,10 @@
 import {
+  CURRENCIES,
   METHODS,
+  type BudgetInput,
   type CategoryInput,
   type CompanySettings,
+  type Currency,
   type ImportCommitOptions,
   type Method,
   type MissingDatePolicy,
@@ -54,6 +57,13 @@ export function validateId(value: unknown, label = 'Mã'): number {
   return value;
 }
 
+export function validateReference(value: unknown): string {
+  if (typeof value !== 'string') fail('Số tờ khai không hợp lệ.');
+  const reference = value.trim();
+  if (!reference || reference.length > 80) fail('Số tờ khai không hợp lệ.');
+  return reference;
+}
+
 function text(value: unknown, label: string, max: number): string {
   if (value === undefined || value === null) return '';
   if (typeof value !== 'string') fail(`${label} không hợp lệ.`);
@@ -70,6 +80,11 @@ function kind(value: unknown): TxKind {
 function method(value: unknown): Method {
   if (typeof value !== 'string' || !METHODS.includes(value as Method)) fail('Hình thức thanh toán không hợp lệ.');
   return value as Method;
+}
+
+function currency(value: unknown): Currency {
+  if (typeof value !== 'string' || !CURRENCIES.includes(value as Currency)) fail('Tiền tệ không hợp lệ.');
+  return value as Currency;
 }
 
 function color(value: unknown): string {
@@ -94,13 +109,45 @@ function details(value: unknown): Record<string, number> {
 
 export function validateTxInput(value: unknown): TxInput {
   const input = asRecord(value, 'Dữ liệu giao dịch');
-  const amount = input.amount;
-  if (typeof amount !== 'number' || !Number.isInteger(amount) || amount <= 0) {
-    fail('Số tiền phải là số nguyên dương.');
+  const kindValue = kind(input.kind);
+  const currencyValue = input.currency === undefined ? 'VND' : currency(input.currency);
+  let amount = 0;
+  let originalAmount = 0;
+  let exchangeRate = 1;
+
+  if (currencyValue === 'VND') {
+    amount = input.amount as number;
+    if (typeof amount !== 'number' || !Number.isInteger(amount) || amount <= 0) {
+      fail('Số tiền phải là số nguyên dương.');
+    }
+    if (amount > MAX_AMOUNT) fail('Số tiền vượt quá giới hạn cho phép.');
+    originalAmount = amount;
+  } else {
+    originalAmount = input.originalAmount as number;
+    exchangeRate = input.exchangeRate as number;
+    if (typeof originalAmount !== 'number' || !Number.isFinite(originalAmount) || originalAmount <= 0) {
+      fail('Số tiền ngoại tệ phải lớn hơn 0.');
+    }
+    if (typeof exchangeRate !== 'number' || !Number.isFinite(exchangeRate) || exchangeRate <= 0) {
+      fail('Tỷ giá phải lớn hơn 0.');
+    }
+    amount = Math.round(originalAmount * exchangeRate);
+    if (amount <= 0 || amount > MAX_AMOUNT) fail('Số tiền quy đổi vượt quá giới hạn cho phép.');
   }
-  if (amount > MAX_AMOUNT) fail('Số tiền vượt quá giới hạn cho phép.');
+
+  const dueDate = input.dueDate ? validateDate(input.dueDate, 'Hạn thanh toán') : '';
+  let paidAmount: number = amount;
+  if (input.paidAmount !== undefined) {
+    if (typeof input.paidAmount !== 'number' || !Number.isInteger(input.paidAmount) || input.paidAmount < 0) {
+      fail('Số tiền đã thanh toán không hợp lệ.');
+    }
+    paidAmount = input.paidAmount;
+  }
+  if (paidAmount > amount) fail('Đã thanh toán không được vượt quá số tiền giao dịch.');
+  if (!dueDate) paidAmount = amount;
+
   return {
-    kind: kind(input.kind),
+    kind: kindValue,
     amount,
     occurredOn: validateDate(input.occurredOn, 'Ngày giao dịch'),
     categoryId: validateId(input.categoryId, 'Danh mục'),
@@ -115,6 +162,11 @@ export function validateTxInput(value: unknown): TxInput {
     containerSize: text(input.containerSize, 'Kích thước container', 80),
     carrier: text(input.carrier, 'Đơn vị vận chuyển', 120),
     details: details(input.details),
+    dueDate,
+    paidAmount,
+    currency: currencyValue,
+    originalAmount,
+    exchangeRate,
   };
 }
 
@@ -197,4 +249,25 @@ export function validateImportOptions(value: unknown): ImportCommitOptions {
     missingDate: missingDate as MissingDatePolicy,
     method: method(input.method),
   };
+}
+
+export function validateBudgetInput(value: unknown): BudgetInput {
+  const input = asRecord(value, 'Dữ liệu ngân sách');
+  const amount = input.amount;
+  if (typeof amount !== 'number' || !Number.isInteger(amount) || amount <= 0) {
+    fail('Ngân sách phải là số nguyên dương.');
+  }
+  if (amount > MAX_AMOUNT) fail('Ngân sách vượt quá giới hạn cho phép.');
+  return {
+    categoryId: validateId(input.categoryId, 'Danh mục'),
+    month: validateMonth(input.month),
+    amount,
+  };
+}
+
+export function validatePaymentAmount(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isInteger(value) || value <= 0) {
+    fail('Số tiền thanh toán phải là số nguyên dương.');
+  }
+  return value;
 }
