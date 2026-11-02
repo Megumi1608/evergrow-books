@@ -1,0 +1,38 @@
+appId: com.evergrow.books
+productName: Evergrow Books
+copyright: Copyright © 2026 Evergrow
+directories:
+  output: release
+  buildResources: build
+files:
+  - dist-electron/**/*
+  - dist/renderer/**/*
+  - package.json
+asar: true
+npmRebuild: false
+electronDist: node_modules/electron/dist
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  icon: build/icon.ico
+  artifactName: Evergrow-Books-Setup-${version}.${ext}
+nsis:
+  oneClick: false
+  perMachine: false
+  allowElevation: true
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Evergrow Books
+  installerIcon: build/icon.ico
+  uninstallerIcon: build/icon.ico
+  installerHeaderIcon: build/icon.ico
+  deleteAppDataOnUninstall: false
+  runAfterFinish: true
+publish:
+  provider: github
+  owner: Megumi1608
+  repo: evergrow-books
+  releaseType: release
