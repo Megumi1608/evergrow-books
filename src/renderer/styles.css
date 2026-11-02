@@ -3014,7 +3014,7 @@ tr:hover .row-actions .icon-btn,
 }
 
 .data-actions.no-pad {
-  padding-top: 0;
+  padding: 0;
 }
 
 .auto-backup {
