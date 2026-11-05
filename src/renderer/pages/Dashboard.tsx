@@ -226,7 +226,7 @@ export function DashboardPage() {
                     <td className="date-cell">{formatDate(transaction.occurredOn)}</td>
                     <td>
                       <span className="cat-cell">
-                        <i className="dot" />
+                        <i className="dot" style={{ background: transaction.categoryColor }} />
                         {transaction.categoryName}
                       </span>
                     </td>

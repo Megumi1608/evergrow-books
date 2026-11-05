@@ -292,7 +292,7 @@ function BreakdownTable({
                 <tr key={`${item.name}-${item.color}`}>
                   <td>
                     <span className="cat-cell">
-                      <i className="dot" />
+                      <i className="dot" style={{ background: item.color }} />
                       {item.name}
                     </span>
                     <span className="breakdown-count">{item.count} giao dịch</span>

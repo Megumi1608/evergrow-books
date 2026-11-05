@@ -208,6 +208,12 @@ export function PrintReport({ params }: { params: URLSearchParams }) {
                     {transaction.attachmentCount > 0 ? (
                       <span className="print-note"> · {transaction.attachmentCount} chứng từ</span>
                     ) : null}
+                    {Object.keys(transaction.details).length > 0 ? (
+                      <span className="print-note">
+                        {' '}
+                        · {Object.keys(transaction.details).length} khoản phí
+                      </span>
+                    ) : null}
                     {transaction.note ? <span className="print-note"> · {transaction.note}</span> : null}
                   </td>
                   <td>{METHOD_LABELS[transaction.method]}</td>

@@ -145,6 +145,11 @@ export function ImportDialog({
                   <td className={`num amount ${row.kind}`}>
                     {row.kind === 'income' ? '+' : '−'}
                     {formatNumber(row.amount)} đ
+                    {Object.keys(row.details).length > 0 ? (
+                      <span className="amount-sub" title={Object.keys(row.details).join(', ')}>
+                        {Object.keys(row.details).length} khoản phí
+                      </span>
+                    ) : null}
                   </td>
                 </tr>
               ))}

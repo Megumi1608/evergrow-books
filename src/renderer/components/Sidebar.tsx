@@ -9,6 +9,8 @@ import {
   LayoutDashboard,
   LoaderCircle,
   Palette,
+  PanelLeftClose,
+  PanelLeftOpen,
   RefreshCw,
   Settings,
   Tags,
@@ -70,24 +72,57 @@ export function Sidebar({
   companyName,
   version,
   updateState,
+  collapsed,
+  onToggle,
 }: {
   path: string;
   companyName: string;
   version: string;
   updateState: UpdateState;
+  collapsed: boolean;
+  onToggle: () => void;
 }) {
   const update = updateSummary(updateState);
   const initial = companyName.trim().charAt(0).toUpperCase() || 'E';
 
   return (
-    <aside className="sidebar">
-      <a className="brand" href="#/dashboard">
-        <img className="brand-leaf" src={LOGO_LEAF} alt="" />
-        <span className="brand-text">
-          <img className="brand-wordmark" src={LOGO_WORDMARK} alt="Evergrow" />
-          <span className="brand-sub">Sổ thu chi</span>
-        </span>
-      </a>
+    <aside className={`sidebar${collapsed ? ' collapsed' : ''}`}>
+      <div className="sidebar-head">
+        {collapsed ? (
+          <button
+            type="button"
+            className="brand brand-collapsed"
+            onClick={onToggle}
+            aria-label="Mở rộng thanh điều hướng"
+            title="Mở rộng thanh điều hướng"
+          >
+            <img className="brand-leaf" src={LOGO_LEAF} alt="Evergrow" />
+            <span className="brand-expand" aria-hidden="true">
+              <PanelLeftOpen size={17} />
+            </span>
+          </button>
+        ) : (
+          <>
+            <a className="brand" href="#/dashboard">
+              <img className="brand-leaf" src={LOGO_LEAF} alt="" />
+              <span className="brand-text">
+                <img className="brand-wordmark" src={LOGO_WORDMARK} alt="Evergrow" />
+                <span className="brand-sub">Sổ thu chi</span>
+              </span>
+            </a>
+            <button
+              type="button"
+              className="sidebar-toggle"
+              onClick={onToggle}
+              aria-label="Thu gọn thanh điều hướng"
+              aria-expanded="true"
+              title="Thu gọn thanh điều hướng"
+            >
+              <PanelLeftClose size={16} />
+            </button>
+          </>
+        )}
+      </div>
 
       <nav className="nav" aria-label="Điều hướng chính">
         {NAV_SECTIONS.map((section) => (
@@ -102,6 +137,7 @@ export function Sidebar({
                   href={`#${item.path}`}
                   className={`nav-item${active ? ' active' : ''}`}
                   aria-current={active ? 'page' : undefined}
+                  title={collapsed ? item.label : undefined}
                 >
                   <Icon size={17} strokeWidth={active ? 2 : 1.8} />
                   <span>{item.label}</span>
@@ -113,11 +149,15 @@ export function Sidebar({
       </nav>
 
       <div className="sidebar-bottom">
-        <a href="#/settings" className={`update-chip tone-${update.tone}`}>
+        <a
+          href="#/settings"
+          className={`update-chip tone-${update.tone}`}
+          title={collapsed ? update.label : undefined}
+        >
           {update.icon}
           <span>{update.label}</span>
         </a>
-        <div className="company-card">
+        <div className="company-card" title={collapsed ? companyName : undefined}>
           <span className="company-mark">{initial}</span>
           <div className="company-meta">
             <span className="company-label">Công ty</span>

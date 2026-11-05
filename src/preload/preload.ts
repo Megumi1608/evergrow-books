@@ -44,6 +44,8 @@ const api: EvergrowApi = {
   attachments: {
     list: (transactionId) => ipcRenderer.invoke('attachments:list', transactionId),
     add: (transactionId) => ipcRenderer.invoke('attachments:add', transactionId),
+    stage: () => ipcRenderer.invoke('attachments:stage'),
+    commit: (transactionId, tokens) => ipcRenderer.invoke('attachments:commit', transactionId, tokens),
     open: (id) => ipcRenderer.invoke('attachments:open', id),
     remove: (id) => ipcRenderer.invoke('attachments:remove', id),
   },

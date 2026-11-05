@@ -286,6 +286,12 @@ export interface AttachmentMeta {
   createdAt: string;
 }
 
+export interface StagedAttachment {
+  token: string;
+  fileName: string;
+  size: number;
+}
+
 export interface ShipmentSummary {
   reference: string;
   firstDate: string;
@@ -402,6 +408,8 @@ export interface EvergrowApi {
   attachments: {
     list(transactionId: number): Promise<AttachmentMeta[]>;
     add(transactionId: number): Promise<AttachmentMeta | null>;
+    stage(): Promise<StagedAttachment | null>;
+    commit(transactionId: number, tokens: string[]): Promise<void>;
     open(id: number): Promise<void>;
     remove(id: number): Promise<void>;
   };

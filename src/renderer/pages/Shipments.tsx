@@ -15,6 +15,7 @@ import { api, getErrorMessage } from '../api';
 import { useApp } from '../context';
 import { useDebounced } from '../hooks';
 import { useToast } from '../components/toast';
+import { aggregateFees } from '../components/FeeBreakdown';
 import { EmptyState, Modal, PageHeader, PageLoading } from '../components/ui';
 
 export function ShipmentsPage() {
@@ -232,6 +233,7 @@ function ShipmentModal({
   onEdit: (transaction: Transaction) => void;
 }) {
   const { summary } = detail;
+  const fees = aggregateFees(detail.transactions);
   return (
     <Modal
       title={`Lô hàng ${summary.reference}`}
@@ -281,6 +283,35 @@ function ShipmentModal({
           </div>
         </div>
 
+        {fees.length > 0 ? (
+          <div className="shipment-fees">
+            <div className="shipment-fees-head">
+              <span className="field-label">Chi tiết phí</span>
+              <span className="tx-detail-note">{fees.length} khoản · nhập từ Excel</span>
+            </div>
+            <table className="mini-table shipment-fee-table">
+              <thead>
+                <tr>
+                  <th>Khoản phí</th>
+                  <th className="num">Thu</th>
+                  <th className="num">Chi</th>
+                  <th className="num">Số lần</th>
+                </tr>
+              </thead>
+              <tbody>
+                {fees.map((fee) => (
+                  <tr key={fee.label}>
+                    <td>{fee.label}</td>
+                    <td className="num income">{fee.income ? `${formatNumber(fee.income)} đ` : '—'}</td>
+                    <td className="num expense">{fee.expense ? `${formatNumber(fee.expense)} đ` : '—'}</td>
+                    <td className="num">{fee.count}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : null}
+
         <div className="import-table-wrap">
           <table className="mini-table import-table">
             <thead>
@@ -310,6 +341,9 @@ function ShipmentModal({
                   <td className={`num amount ${transaction.kind}`}>
                     {transaction.kind === 'income' ? '+' : '−'}
                     {formatNumber(transaction.amount)} đ
+                    {feeCount(transaction) > 0 ? (
+                      <span className="amount-sub">{feeCount(transaction)} khoản phí</span>
+                    ) : null}
                   </td>
                   <td className="row-actions">
                     <button
@@ -329,4 +363,8 @@ function ShipmentModal({
       </div>
     </Modal>
   );
+}
+
+function feeCount(transaction: Transaction): number {
+  return Object.keys(transaction.details).length;
 }

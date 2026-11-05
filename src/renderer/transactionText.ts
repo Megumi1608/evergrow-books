@@ -25,5 +25,7 @@ export function transactionMeta(transaction: Transaction): string {
   if (transaction.attachmentCount > 0) {
     parts.push(`${transaction.attachmentCount} chứng từ`);
   }
+  const fees = Object.keys(transaction.details).length;
+  if (fees > 0) parts.push(`${fees} khoản phí`);
   return parts.join(' · ');
 }

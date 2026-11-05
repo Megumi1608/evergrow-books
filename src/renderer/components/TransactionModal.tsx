@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from 'react';
-import { ChevronDown, ExternalLink, FileText, LoaderCircle, Paperclip, Trash } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { ChevronDown, ExternalLink, FileText, LoaderCircle, Paperclip, Plus, Trash } from 'lucide-react';
 import type {
   AttachmentMeta,
   Category,
   Currency,
   Method,
+  StagedAttachment,
   Transaction,
   TxInput,
   TxKind,
@@ -13,6 +14,7 @@ import { CURRENCIES, CURRENCY_LABELS, CURRENCY_SUFFIX, METHOD_LABELS } from '../
 import { todayIso } from '../../shared/dates';
 import { formatNumber, formatVnd, parseAmount } from '../../shared/format';
 import { api, getErrorMessage } from '../api';
+import { feeLabel, orderedDetailEntries } from './FeeBreakdown';
 import { useToast } from './toast';
 import { Modal, Segmented, Select } from './ui';
 
@@ -57,7 +59,16 @@ export function TransactionModal({
   const [paidText, setPaidText] = useState(
     transaction?.dueDate && transaction.paidAmount ? formatNumber(transaction.paidAmount) : '',
   );
+  const [feeRows, setFeeRows] = useState(() =>
+    orderedDetailEntries(transaction?.details ?? {}).map(([label, value]) => ({
+      label: feeLabel(label),
+      text: value ? formatNumber(value) : '',
+    })),
+  );
+  const feeRowsRef = useRef<HTMLDivElement>(null);
+  const focusNewFee = useRef(false);
   const [attachments, setAttachments] = useState<AttachmentMeta[]>([]);
+  const [pendingAttachments, setPendingAttachments] = useState<StagedAttachment[]>([]);
   const [attachmentBusy, setAttachmentBusy] = useState(false);
   const [showExtras, setShowExtras] = useState(
     Boolean(
@@ -148,19 +159,51 @@ export function TransactionModal({
   };
 
   const addAttachment = async () => {
-    if (!transaction) return;
     setAttachmentBusy(true);
     try {
-      const added = await api.attachments.add(transaction.id);
-      if (added) {
-        setAttachments((current) => [...current, added]);
-        toast('Đã thêm chứng từ.');
+      if (transaction) {
+        const added = await api.attachments.add(transaction.id);
+        if (added) {
+          setAttachments((current) => [...current, added]);
+          toast('Đã thêm chứng từ.');
+        }
+      } else {
+        const staged = await api.attachments.stage();
+        if (staged) {
+          setPendingAttachments((current) => [...current, staged]);
+          toast('Đã chọn chứng từ. Tệp sẽ được lưu cùng giao dịch.');
+        }
       }
     } catch (err) {
       toast(getErrorMessage(err), 'error');
     } finally {
       setAttachmentBusy(false);
     }
+  };
+
+  const removePendingAttachment = (token: string) => {
+    setPendingAttachments((current) => current.filter((item) => item.token !== token));
+  };
+
+  const updateFeeRow = (index: number, patch: Partial<{ label: string; text: string }>) => {
+    setFeeRows((rows) => rows.map((row, position) => (position === index ? { ...row, ...patch } : row)));
+  };
+
+  const addFeeRow = () => {
+    focusNewFee.current = true;
+    setFeeRows((rows) => (rows.length >= 30 ? rows : [...rows, { label: '', text: '' }]));
+  };
+
+  useEffect(() => {
+    if (!focusNewFee.current) return;
+    focusNewFee.current = false;
+    const lastRow = feeRowsRef.current?.lastElementChild as HTMLElement | null;
+    lastRow?.scrollIntoView({ block: 'nearest' });
+    lastRow?.querySelector('input')?.focus();
+  }, [feeRows.length]);
+
+  const removeFeeRow = (index: number) => {
+    setFeeRows((rows) => rows.filter((_, position) => position !== index));
   };
 
   const removeAttachment = async (id: number) => {
@@ -200,6 +243,12 @@ export function TransactionModal({
       setError('Số tiền đã thanh toán không được vượt quá số tiền giao dịch.');
       return;
     }
+    const details: Record<string, number> = {};
+    for (const row of feeRows) {
+      const label = row.label.trim().slice(0, 60);
+      const value = parseAmount(row.text);
+      if (label && value > 0) details[label] = value;
+    }
     const input: TxInput = {
       kind,
       amount: amountVnd,
@@ -215,7 +264,7 @@ export function TransactionModal({
       containerNo,
       containerSize,
       carrier,
-      details: transaction?.details ?? {},
+      details,
       dueDate: trackDebt ? dueDate : '',
       paidAmount: trackDebt ? paidAmount : amountVnd,
       currency,
@@ -227,6 +276,19 @@ export function TransactionModal({
       const saved = transaction
         ? await api.transactions.update(transaction.id, input)
         : await api.transactions.create(input);
+      if (!transaction && pendingAttachments.length > 0) {
+        try {
+          await api.attachments.commit(
+            saved.id,
+            pendingAttachments.map((attachment) => attachment.token),
+          );
+        } catch (attachmentError) {
+          toast(
+            `Giao dịch đã lưu nhưng chứng từ chưa đính kèm được: ${getErrorMessage(attachmentError)}`,
+            'error',
+          );
+        }
+      }
       toast(transaction ? 'Đã cập nhật giao dịch.' : 'Đã thêm giao dịch.');
       onSaved(saved);
     } catch (err) {
@@ -380,6 +442,65 @@ export function TransactionModal({
           />
         </label>
 
+        <div className="detail-list">
+          <div className="detail-list-head">
+            <span className="field-label">Chi tiết phí</span>
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              onClick={addFeeRow}
+              disabled={feeRows.length >= 30}
+            >
+              <Plus size={13} />
+              Thêm khoản
+            </button>
+          </div>
+          {feeRows.length === 0 ? (
+            <p className="hint no-pad">Chưa có khoản phí. Bấm “Thêm khoản” để nhập.</p>
+          ) : (
+            <div className="fee-edit-rows" ref={feeRowsRef}>
+              <div className="fee-edit-head" aria-hidden="true">
+                <span>Tên khoản phí</span>
+                <span>Số tiền</span>
+                <span />
+              </div>
+              {feeRows.map((row, index) => (
+                <div className="fee-edit-row" key={index}>
+                  <input
+                    className="input"
+                    value={row.label}
+                    maxLength={60}
+                    placeholder="Tên khoản phí (VD: Phí nâng)"
+                    onChange={(event) => updateFeeRow(index, { label: event.target.value })}
+                  />
+                  <span className="amount-wrap">
+                    <input
+                      className="input"
+                      inputMode="numeric"
+                      placeholder="0"
+                      value={row.text}
+                      onChange={(event) => {
+                        const parsed = parseAmount(event.target.value);
+                        updateFeeRow(index, { text: parsed > 0 ? formatNumber(parsed) : '' });
+                      }}
+                    />
+                    <span className="amount-suffix">đ</span>
+                  </span>
+                  <button
+                    type="button"
+                    className="icon-btn sm danger"
+                    aria-label="Xoá khoản phí"
+                    title="Xoá khoản phí"
+                    onClick={() => removeFeeRow(index)}
+                  >
+                    <Trash size={14} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
         <div className="debt-block">
           <label className="check-row">
             <input
@@ -526,43 +647,32 @@ export function TransactionModal({
           </div>
         ) : null}
 
-        {transaction && Object.keys(transaction.details).length > 0 ? (
-          <div className="detail-list">
-            <span className="field-label">Chi tiết phí (nhập từ Excel)</span>
-            <div className="detail-rows">
-              {Object.entries(transaction.details).map(([label, value]) => (
-                <div className="detail-row" key={label}>
-                  <span>{label}</span>
-                  <strong>{formatNumber(value)} đ</strong>
-                </div>
-              ))}
-            </div>
-          </div>
-        ) : null}
-
         <div className="attachments-block">
           <div className="attachments-head">
             <span className="field-label">
               <Paperclip size={13} />
               Chứng từ
-              {attachments.length > 0 ? <span className="attachment-count">{attachments.length}</span> : null}
+              {attachments.length + pendingAttachments.length > 0 ? (
+                <span className="attachment-count">
+                  {attachments.length + pendingAttachments.length}
+                </span>
+              ) : null}
             </span>
-            {transaction ? (
-              <button
-                type="button"
-                className="btn btn-outline btn-sm"
-                onClick={addAttachment}
-                disabled={attachmentBusy}
-              >
-                {attachmentBusy ? <LoaderCircle size={13} className="spin" /> : <Paperclip size={13} />}
-                Thêm tệp
-              </button>
-            ) : null}
+            <button
+              type="button"
+              className="btn btn-outline btn-sm"
+              onClick={addAttachment}
+              disabled={attachmentBusy}
+            >
+              {attachmentBusy ? <LoaderCircle size={13} className="spin" /> : <Paperclip size={13} />}
+              Thêm tệp
+            </button>
           </div>
-          {!transaction ? (
-            <p className="hint no-pad">Lưu giao dịch trước, sau đó mở lại để đính kèm chứng từ.</p>
-          ) : attachments.length === 0 ? (
-            <p className="hint no-pad">Chưa có chứng từ. Hỗ trợ ảnh PNG/JPG/WEBP/GIF và PDF, tối đa 10 MB.</p>
+          {attachments.length + pendingAttachments.length === 0 ? (
+            <p className="hint no-pad">
+              Chưa có chứng từ. Hỗ trợ ảnh PNG/JPG/WEBP/GIF và PDF, tối đa 10 MB.
+              {!transaction ? ' Tệp sẽ được lưu khi bạn thêm giao dịch.' : ''}
+            </p>
           ) : (
             <div className="attachment-list">
               {attachments.map((attachment) => (
@@ -589,6 +699,25 @@ export function TransactionModal({
                     aria-label="Xoá chứng từ"
                     title="Xoá chứng từ"
                     onClick={() => removeAttachment(attachment.id)}
+                  >
+                    <Trash size={14} />
+                  </button>
+                </div>
+              ))}
+              {pendingAttachments.map((attachment) => (
+                <div className="attachment-item pending" key={attachment.token}>
+                  <FileText size={15} />
+                  <span className="attachment-name" title={attachment.fileName}>
+                    {attachment.fileName}
+                  </span>
+                  <span className="attachment-badge">Chờ lưu</span>
+                  <span className="attachment-size">{formatFileSize(attachment.size)}</span>
+                  <button
+                    type="button"
+                    className="icon-btn sm danger"
+                    aria-label="Bỏ chứng từ"
+                    title="Bỏ chứng từ"
+                    onClick={() => removePendingAttachment(attachment.token)}
                   >
                     <Trash size={14} />
                   </button>

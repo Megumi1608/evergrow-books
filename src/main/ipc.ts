@@ -1,4 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, shell, type IpcMainInvokeEvent } from 'electron';
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { Store } from './db';
@@ -33,6 +34,42 @@ interface IpcDeps {
 }
 
 const printWaiters = new Map<number, () => void>();
+
+const ATTACHMENT_TTL_MS = 30 * 60 * 1000;
+const ATTACHMENT_MIME: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.gif': 'image/gif',
+  '.pdf': 'application/pdf',
+};
+
+interface StagedAttachmentFile {
+  fileName: string;
+  mimeType: string;
+  data: Buffer;
+  expires: number;
+}
+
+const stagedAttachments = new Map<string, StagedAttachmentFile>();
+
+function cleanupStagedAttachments(): void {
+  const now = Date.now();
+  for (const [token, file] of stagedAttachments) {
+    if (file.expires < now) stagedAttachments.delete(token);
+  }
+}
+
+function readAttachmentFile(file: string): { fileName: string; mimeType: string; data: Buffer } {
+  const stat = fs.statSync(file);
+  if (stat.size <= 0) throw new Error('Tệp chứng từ rỗng.');
+  if (stat.size > 10 * 1024 * 1024) throw new Error('Chứng từ tối đa 10 MB.');
+  const extension = path.extname(file).toLowerCase();
+  const mimeType = ATTACHMENT_MIME[extension];
+  if (!mimeType) throw new Error('Chỉ hỗ trợ ảnh PNG/JPG/WEBP/GIF và PDF.');
+  return { fileName: path.basename(file), mimeType, data: fs.readFileSync(file) };
+}
 
 export function registerIpc(deps: IpcDeps): void {
   const { store, getMainWindow, preloadPath, loadPrintRoute, trustedUrlPrefixes } = deps;
@@ -136,8 +173,7 @@ export function registerIpc(deps: IpcDeps): void {
   );
 
   handle('attachments:list', (id: unknown) => store.listAttachments(validateId(id, 'Giao dịch')));
-  handle('attachments:add', async (id: unknown) => {
-    const transactionId = validateId(id, 'Giao dịch');
+  const pickAttachmentFile = async (): Promise<string | null> => {
     const win = getMainWindow();
     const options = {
       title: 'Chọn chứng từ',
@@ -146,22 +182,47 @@ export function registerIpc(deps: IpcDeps): void {
     };
     const result = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options);
     if (result.canceled || result.filePaths.length === 0) return null;
-    const file = result.filePaths[0];
-    const stat = fs.statSync(file);
-    if (stat.size <= 0) throw new Error('Tệp chứng từ rỗng.');
-    if (stat.size > 10 * 1024 * 1024) throw new Error('Chứng từ tối đa 10 MB.');
-    const extension = path.extname(file).toLowerCase();
-    const mimeByExtension: Record<string, string> = {
-      '.png': 'image/png',
-      '.jpg': 'image/jpeg',
-      '.jpeg': 'image/jpeg',
-      '.webp': 'image/webp',
-      '.gif': 'image/gif',
-      '.pdf': 'application/pdf',
-    };
-    const mimeType = mimeByExtension[extension];
-    if (!mimeType) throw new Error('Chỉ hỗ trợ ảnh PNG/JPG/WEBP/GIF và PDF.');
-    return store.addAttachment(transactionId, path.basename(file), mimeType, fs.readFileSync(file));
+    return result.filePaths[0];
+  };
+
+  handle('attachments:add', async (id: unknown) => {
+    const transactionId = validateId(id, 'Giao dịch');
+    const file = await pickAttachmentFile();
+    if (!file) return null;
+    const attachment = readAttachmentFile(file);
+    return store.addAttachment(transactionId, attachment.fileName, attachment.mimeType, attachment.data);
+  });
+
+  handle('attachments:stage', async () => {
+    cleanupStagedAttachments();
+    const file = await pickAttachmentFile();
+    if (!file) return null;
+    const attachment = readAttachmentFile(file);
+    const token = randomUUID();
+    stagedAttachments.set(token, { ...attachment, expires: Date.now() + ATTACHMENT_TTL_MS });
+    return { token, fileName: attachment.fileName, size: attachment.data.length };
+  });
+
+  handle('attachments:commit', (id: unknown, tokens: unknown) => {
+    const transactionId = validateId(id, 'Giao dịch');
+    if (!Array.isArray(tokens) || tokens.length === 0) return;
+    if (tokens.length > 20) throw new Error('Tối đa 20 chứng từ cho mỗi giao dịch.');
+    cleanupStagedAttachments();
+    const staged = tokens.map((token) => {
+      if (typeof token !== 'string') throw new Error('Chứng từ không hợp lệ.');
+      const attachment = stagedAttachments.get(token);
+      if (!attachment) throw new Error('Chứng từ đã hết hạn. Vui lòng chọn lại tệp.');
+      return { token, attachment };
+    });
+    for (const item of staged) {
+      store.addAttachment(
+        transactionId,
+        item.attachment.fileName,
+        item.attachment.mimeType,
+        item.attachment.data,
+      );
+      stagedAttachments.delete(item.token);
+    }
   });
 
   handle('attachments:open', async (id: unknown) => {

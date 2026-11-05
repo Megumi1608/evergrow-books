@@ -32,8 +32,21 @@ function Shell({ route }: { route: Route }) {
   const [theme, setTheme] = useState<ThemeSettings>(readCachedTheme);
   const [revision, setRevision] = useState(0);
   const [updateState, setUpdateState] = useState<UpdateState>({ status: 'idle' });
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(readSidebarState);
   const [modal, setModal] = useState<{ transaction: Transaction | null } | null>(null);
   const mainRef = useRef<HTMLElement>(null);
+
+  const toggleSidebar = useCallback(() => {
+    setSidebarCollapsed((value) => {
+      const next = !value;
+      try {
+        localStorage.setItem('evergrow.sidebar', next ? 'collapsed' : 'expanded');
+      } catch {
+        // localStorage can be unavailable in restricted windows
+      }
+      return next;
+    });
+  }, []);
 
   const bump = useCallback(() => setRevision((value) => value + 1), []);
   const openTransaction = useCallback(
@@ -122,13 +135,15 @@ function Shell({ route }: { route: Route }) {
 
   return (
     <AppContext.Provider value={context}>
-      <div className="shell">
+      <div className={`shell${sidebarCollapsed ? ' sidebar-collapsed' : ''}`}>
         <div className="titlebar-drag" />
         <Sidebar
           path={route.path}
           companyName={companyName}
           version={meta?.version ?? '1.0.0'}
           updateState={updateState}
+          collapsed={sidebarCollapsed}
+          onToggle={toggleSidebar}
         />
         <main className="main" ref={mainRef}>
           <div className="main-inner">{renderPage(route.path)}</div>
@@ -149,6 +164,14 @@ function Shell({ route }: { route: Route }) {
       ) : null}
     </AppContext.Provider>
   );
+}
+
+function readSidebarState(): boolean {
+  try {
+    return localStorage.getItem('evergrow.sidebar') === 'collapsed';
+  } catch {
+    return false;
+  }
 }
 
 function renderPage(path: string) {

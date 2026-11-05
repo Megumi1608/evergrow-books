@@ -116,6 +116,11 @@ input:focus-visible {
   display: grid;
   grid-template-columns: 244px minmax(0, 1fr);
   height: 100vh;
+  transition: grid-template-columns 0.18s ease;
+}
+
+.shell.sidebar-collapsed {
+  grid-template-columns: 76px minmax(0, 1fr);
 }
 
 .titlebar-drag {
@@ -137,11 +142,21 @@ input:focus-visible {
   border-right: 1px solid var(--line);
 }
 
+.sidebar-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 0 22px;
+}
+
 .brand {
   display: flex;
+  flex: 1;
   align-items: center;
   gap: 9px;
-  padding: 6px 9px 24px;
+  min-width: 0;
+  padding: 6px 0 0 2px;
 }
 
 .brand-leaf {
@@ -321,11 +336,121 @@ input:focus-visible {
   text-overflow: ellipsis;
 }
 
+.sidebar-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex: none;
+  margin-top: 6px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background 0.14s ease, border-color 0.14s ease, color 0.14s ease;
+}
+
+.sidebar-toggle:hover {
+  background: var(--surface);
+  border-color: var(--line);
+  color: var(--ink-2);
+}
+
+.sidebar-toggle svg {
+  flex: none;
+}
+
 .sidebar-version {
   font-size: 10px;
   color: var(--muted);
   opacity: 0.85;
   padding-left: 2px;
+}
+
+.sidebar.collapsed {
+  padding-left: 10px;
+  padding-right: 10px;
+}
+
+.brand-expand {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink-2);
+}
+
+.sidebar.collapsed .sidebar-head {
+  justify-content: center;
+  align-items: center;
+  padding-bottom: 18px;
+}
+
+.sidebar.collapsed .brand {
+  width: 34px;
+  height: 34px;
+  flex: none;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: 9px;
+  background: none;
+  cursor: pointer;
+}
+
+.sidebar.collapsed .brand:hover {
+  background: var(--surface);
+}
+
+.sidebar.collapsed .brand:hover .brand-leaf {
+  display: none;
+}
+
+.sidebar.collapsed .brand:hover .brand-expand {
+  display: inline-flex;
+}
+
+.sidebar.collapsed .brand-leaf {
+  height: 26px;
+}
+
+.sidebar.collapsed .nav-section-label,
+.sidebar.collapsed .nav-item > span,
+.sidebar.collapsed .update-chip > span,
+.sidebar.collapsed .company-meta,
+.sidebar.collapsed .sidebar-version {
+  display: none;
+}
+
+.sidebar.collapsed .nav-section + .nav-section {
+  margin-top: 12px;
+  padding-top: 12px;
+}
+
+.sidebar.collapsed .nav-item {
+  justify-content: center;
+  padding: 9px 0;
+}
+
+.sidebar.collapsed .sidebar-bottom {
+  align-items: center;
+}
+
+.sidebar.collapsed .update-chip {
+  align-self: center;
+  justify-content: center;
+  padding: 7px;
+}
+
+.sidebar.collapsed .company-card {
+  justify-content: center;
+  width: 100%;
+  padding: 0;
+  border-color: transparent;
+  background: none;
+  box-shadow: none;
 }
 
 /* ---------- Main ---------- */
@@ -338,8 +463,7 @@ input:focus-visible {
 }
 
 .main-inner {
-  max-width: 1180px;
-  margin: 0 auto;
+  width: 100%;
   padding: 54px 36px 64px;
 }
 
@@ -1270,6 +1394,163 @@ tr:hover .row-actions .icon-btn,
   gap: 6px;
 }
 
+/* ---------- Transaction inline details ---------- */
+
+.tx-table tbody tr.has-detail td {
+  border-bottom: none;
+}
+
+.tx-inline-row td {
+  padding-top: 1px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.tx-inline-row.income td:first-child {
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--income) 38%, transparent);
+}
+
+.tx-inline-row.expense td:first-child {
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--expense) 30%, transparent);
+}
+
+.tx-inline-row:hover,
+.tx-table tbody tr.has-detail:hover + .tx-inline-row {
+  background: var(--soft);
+}
+
+.tx-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.tx-inline {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0;
+}
+
+.tx-inline-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 14px;
+}
+
+.meta-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  font-size: 10px;
+  color: var(--ink-2);
+}
+
+.meta-chip i {
+  font-style: normal;
+  color: var(--muted);
+}
+
+.meta-chip strong {
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+.meta-chip strong.expense {
+  color: var(--expense);
+}
+
+.tx-inline-fees {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+}
+
+.tx-inline-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-right: 3px;
+  padding-top: 2px;
+  font-size: 8.5px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.tx-inline-label svg {
+  color: var(--muted);
+}
+
+.tx-inline-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 15px;
+  padding: 0 4px;
+  border-radius: 5px;
+  background: var(--surface-muted);
+  color: var(--ink-2);
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.fee-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 3px 9px;
+  border: none;
+  border-radius: 7px;
+  background: var(--surface-muted);
+  font-size: 10px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.fee-chip strong {
+  font-weight: 600;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.fee-chip-button {
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.12s ease, box-shadow 0.12s ease;
+}
+
+.fee-chip-button:hover {
+  background: color-mix(in srgb, var(--surface-muted) 55%, var(--line));
+}
+
+.fee-chip-editing {
+  gap: 5px;
+  padding: 2px 6px 2px 9px;
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1.5px var(--ink);
+}
+
+.fee-cell-input {
+  padding: 0;
+  border: none;
+  background: none;
+  outline: none;
+  font: inherit;
+  font-weight: 600;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.fee-chip-suffix {
+  font-size: 9.5px;
+  color: var(--muted);
+}
+
 /* ---------- Reports ---------- */
 
 .range-card {
@@ -1980,6 +2261,22 @@ tr:hover .row-actions .icon-btn,
 .attachment-size {
   font-size: 9px;
   color: var(--muted);
+  white-space: nowrap;
+}
+
+.attachment-item.pending {
+  border-style: dashed;
+  background: var(--soft);
+}
+
+.attachment-badge {
+  padding: 1px 6px;
+  border-radius: 99px;
+  background: var(--warning-soft);
+  color: var(--warning);
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
   white-space: nowrap;
 }
 
@@ -2763,33 +3060,68 @@ tr:hover .row-actions .icon-btn,
   border-top: 1px solid var(--line);
 }
 
-.detail-rows {
-  display: flex;
-  flex-direction: column;
-  margin-top: 6px;
-}
-
-.detail-row {
+.detail-list-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 5px 0;
-  border-bottom: 1px dashed var(--line);
-  font-size: 10.5px;
 }
 
-.detail-row:last-child {
-  border-bottom: none;
+.fee-edit-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--soft);
 }
 
-.detail-row span {
+.fee-edit-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 170px 30px;
+  gap: 6px;
+  margin-bottom: 2px;
+  padding: 0 2px 7px;
+  border-bottom: 1px solid var(--line);
+  font-size: 8.5px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
   color: var(--muted);
 }
 
-.detail-row strong {
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
+.fee-edit-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 170px 30px;
+  gap: 6px;
+  align-items: center;
+}
+
+.fee-edit-row .input {
+  height: 32px;
+  font-size: 11px;
+}
+
+.fee-edit-row .amount-wrap .input {
+  padding-right: 26px;
+  text-align: right;
+}
+
+.fee-edit-row .amount-suffix {
+  right: 10px;
+  font-size: 11px;
+}
+
+.fee-edit-row .icon-btn {
+  justify-self: end;
+  opacity: 0.4;
+  transition: opacity 0.12s ease;
+}
+
+.fee-edit-row:hover .icon-btn,
+.fee-edit-row .icon-btn:focus-visible {
+  opacity: 1;
 }
 
 .cat-amount.expense {
@@ -2882,6 +3214,48 @@ tr:hover .row-actions .icon-btn,
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.shipment-fees {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.shipment-fees-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 9px 12px;
+  background: var(--surface-muted);
+  border-bottom: 1px solid var(--line);
+}
+
+.shipment-fee-table th {
+  padding: 7px 12px;
+  background: var(--surface-muted);
+}
+
+.shipment-fee-table td {
+  padding: 7px 12px;
+  font-size: 10.5px;
+}
+
+.shipment-fee-table td.income {
+  color: var(--income);
+}
+
+.shipment-fee-table td.expense {
+  color: var(--expense);
+}
+
+.amount-sub {
+  display: block;
+  margin-top: 2px;
+  font-size: 9px;
+  font-weight: 400;
+  color: var(--muted);
 }
 
 .debt-aging {

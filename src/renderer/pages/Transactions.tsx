@@ -1,11 +1,14 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ChevronLeft,
   ChevronRight,
   Download,
+  Eye,
+  EyeOff,
   ListFilter,
   LoaderCircle,
   Plus,
+  ReceiptText,
   RotateCcw,
   Search,
   SquarePen,
@@ -13,16 +16,23 @@ import {
   ArrowLeftRight,
   Upload,
 } from 'lucide-react';
-import type { Category, ImportPreview, Transaction, TxKind, TxPage } from '../../shared/types';
+import type { Category, ImportPreview, Transaction, TxInput, TxKind, TxPage } from '../../shared/types';
 import { METHOD_LABELS } from '../../shared/types';
 import { formatDate } from '../../shared/dates';
-import { formatNumber, formatSignedVnd } from '../../shared/format';
+import {
+  formatCurrencyAmount,
+  formatDecimal,
+  formatNumber,
+  formatSignedVnd,
+  formatVnd,
+  parseAmount,
+} from '../../shared/format';
 import { api, getErrorMessage } from '../api';
-import { transactionMeta, transactionTitle } from '../transactionText';
 import { useApp } from '../context';
 import { useDebounced } from '../hooks';
 import { useToast } from '../components/toast';
 import { ImportDialog } from '../components/ImportDialog';
+import { feeLabel, orderedDetailEntries } from '../components/FeeBreakdown';
 import {
   ConfirmDialog,
   EmptyState,
@@ -52,6 +62,7 @@ export function TransactionsPage() {
   const [exporting, setExporting] = useState<'csv' | 'xlsx' | null>(null);
   const [importPreview, setImportPreview] = useState<ImportPreview | null>(null);
   const [importing, setImporting] = useState(false);
+  const [showDetails, setShowDetails] = useState(true);
 
   useEffect(() => {
     let alive = true;
@@ -154,6 +165,19 @@ export function TransactionsPage() {
     }
   };
 
+  const saveFee = async (transaction: Transaction, label: string, value: number) => {
+    try {
+      await api.transactions.update(
+        transaction.id,
+        transactionInput(transaction, { ...transaction.details, [label]: value }),
+      );
+      toast('Đã cập nhật phí.');
+      bump();
+    } catch (error) {
+      toast(getErrorMessage(error), 'error');
+    }
+  };
+
   const total = data?.total ?? 0;
   const start = total === 0 ? 0 : page * PAGE_SIZE + 1;
   const end = Math.min((page + 1) * PAGE_SIZE, total);
@@ -176,6 +200,15 @@ export function TransactionsPage() {
         subtitle={subtitle}
         actions={
           <>
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              onClick={() => setShowDetails((value) => !value)}
+              aria-pressed={showDetails}
+            >
+              {showDetails ? <EyeOff size={15} /> : <Eye size={15} />}
+              {showDetails ? 'Ẩn chi tiết' : 'Hiện chi tiết'}
+            </button>
             <button
               type="button"
               className="btn btn-outline btn-sm"
@@ -314,55 +347,87 @@ export function TransactionsPage() {
                 <tr>
                   <th>Ngày</th>
                   <th>Danh mục</th>
-                  <th>Đối tác / ghi chú</th>
+                  <th>Đối tác / hàng hóa</th>
+                  <th>Số tờ khai</th>
+                  <th>Container</th>
                   <th>Hình thức</th>
                   <th className="num">Số tiền</th>
                   <th className="row-actions-head" aria-label="Thao tác" />
                 </tr>
               </thead>
               <tbody>
-                {(data?.items ?? []).map((transaction) => (
-                  <tr key={transaction.id}>
-                    <td className="date-cell">{formatDate(transaction.occurredOn)}</td>
-                    <td>
-                      <span className="cat-cell">
-                        <i className="dot" />
-                        {transaction.categoryName}
-                      </span>
-                    </td>
-                    <td>
-                      <div className="tx-main">{transactionTitle(transaction)}</div>
-                      {transactionMeta(transaction) ? (
-                        <div className="tx-sub">{transactionMeta(transaction)}</div>
-                      ) : null}
-                    </td>
-                    <td className="method-cell">{METHOD_LABELS[transaction.method]}</td>
-                    <td className={`num amount ${transaction.kind === 'income' ? 'income' : 'expense'}`}>
-                      {transaction.kind === 'income' ? '+' : '−'}
-                      {formatNumber(transaction.amount)} đ
-                    </td>
-                    <td className="row-actions">
-                      <button
-                        type="button"
-                        className="icon-btn sm"
-                        title="Sửa giao dịch"
-                        aria-label="Sửa giao dịch"
+                {(data?.items ?? []).map((transaction) => {
+                  const expandable = showDetails && hasInlineInfo(transaction);
+                  return (
+                    <Fragment key={transaction.id}>
+                      <tr
+                        className={`clickable${expandable ? ' has-detail' : ''}`}
                         onClick={() => openTransaction(transaction)}
+                        title="Bấm để sửa giao dịch"
                       >
-                        <SquarePen size={15} />
-                      </button>
-                      <button
-                        type="button"
-                        className="icon-btn sm danger"
-                        title="Xoá giao dịch"
-                        aria-label="Xoá giao dịch"
-                        onClick={() => setDeleteTarget(transaction)}
-                      >
-                        <Trash size={15} />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                        <td className="date-cell">{formatDate(transaction.occurredOn)}</td>
+                        <td>
+                          <span className="cat-cell">
+                            <i className="dot" style={{ background: transaction.categoryColor }} />
+                            {transaction.categoryName}
+                          </span>
+                        </td>
+                        <td>
+                          <div className="tx-main">{transaction.party || transaction.goodsName || '—'}</div>
+                          <div className="tx-sub">
+                            {[transaction.goodsType, transaction.goodsName].filter(Boolean).join(' · ') || '—'}
+                          </div>
+                        </td>
+                        <td className="ref-cell">{transaction.reference || '—'}</td>
+                        <td className="container-cell">
+                          {[transaction.containerNo, transaction.containerSize].filter(Boolean).join(' · ') || '—'}
+                        </td>
+                        <td className="method-cell">{METHOD_LABELS[transaction.method]}</td>
+                        <td className={`num amount ${transaction.kind === 'income' ? 'income' : 'expense'}`}>
+                          {transaction.kind === 'income' ? '+' : '−'}
+                          {formatNumber(transaction.amount)} đ
+                        </td>
+                        <td className="row-actions">
+                          <button
+                            type="button"
+                            className="icon-btn sm"
+                            title="Sửa giao dịch"
+                            aria-label="Sửa giao dịch"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              openTransaction(transaction);
+                            }}
+                          >
+                            <SquarePen size={15} />
+                          </button>
+                          <button
+                            type="button"
+                            className="icon-btn sm danger"
+                            title="Xoá giao dịch"
+                            aria-label="Xoá giao dịch"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setDeleteTarget(transaction);
+                            }}
+                          >
+                            <Trash size={15} />
+                          </button>
+                        </td>
+                      </tr>
+                      {expandable ? (
+                        <tr
+                          className={`tx-inline-row ${transaction.kind} clickable`}
+                          onClick={() => openTransaction(transaction)}
+                          title="Bấm để sửa giao dịch và cập nhật phí"
+                        >
+                          <td colSpan={8}>
+                            <TransactionInline transaction={transaction} onSaveFee={saveFee} />
+                          </td>
+                        </tr>
+                      ) : null}
+                    </Fragment>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -430,6 +495,159 @@ export function TransactionsPage() {
           onClose={() => setDeleteTarget(null)}
           onConfirm={confirmDelete}
         />
+      ) : null}
+    </div>
+  );
+}
+
+function transactionInput(transaction: Transaction, details: Record<string, number>): TxInput {
+  return {
+    kind: transaction.kind,
+    amount: transaction.amount,
+    occurredOn: transaction.occurredOn,
+    categoryId: transaction.categoryId,
+    party: transaction.party,
+    note: transaction.note,
+    method: transaction.method,
+    reference: transaction.reference,
+    port: transaction.port,
+    goodsName: transaction.goodsName,
+    goodsType: transaction.goodsType,
+    containerNo: transaction.containerNo,
+    containerSize: transaction.containerSize,
+    carrier: transaction.carrier,
+    details,
+    dueDate: transaction.dueDate,
+    paidAmount: transaction.paidAmount,
+    currency: transaction.currency,
+    originalAmount: transaction.originalAmount,
+    exchangeRate: transaction.exchangeRate,
+  };
+}
+
+function hasInlineInfo(transaction: Transaction): boolean {
+  return (
+    Object.keys(transaction.details).length > 0 ||
+    Boolean(transaction.port || transaction.carrier || transaction.note || transaction.dueDate) ||
+    transaction.currency !== 'VND' ||
+    transaction.attachmentCount > 0
+  );
+}
+
+function TransactionInline({
+  transaction,
+  onSaveFee,
+}: {
+  transaction: Transaction;
+  onSaveFee: (transaction: Transaction, label: string, value: number) => Promise<void>;
+}) {
+  const [editing, setEditing] = useState<{ label: string; text: string } | null>(null);
+  const cancelled = useRef(false);
+  const fees = orderedDetailEntries(transaction.details);
+  const meta: { label: string; value: string; tone?: 'expense' }[] = [];
+  if (transaction.port) meta.push({ label: 'Cửa khẩu', value: transaction.port });
+  if (transaction.carrier) meta.push({ label: 'Vận chuyển', value: transaction.carrier });
+  if (transaction.currency !== 'VND') {
+    meta.push({
+      label: 'Nguyên tệ',
+      value: `${formatCurrencyAmount(transaction.originalAmount, transaction.currency)} × ${formatDecimal(transaction.exchangeRate)}`,
+    });
+  }
+  if (transaction.dueDate) {
+    const remaining = Math.max(0, transaction.amount - transaction.paidAmount);
+    meta.push({ label: 'Hạn TT', value: formatDate(transaction.dueDate) });
+    meta.push({ label: 'Còn nợ', value: formatVnd(remaining), tone: remaining > 0 ? 'expense' : undefined });
+  }
+  if (transaction.attachmentCount > 0) {
+    meta.push({ label: 'Chứng từ', value: `${transaction.attachmentCount} tệp` });
+  }
+  if (transaction.note) meta.push({ label: 'Ghi chú', value: transaction.note });
+
+  const commitFee = async () => {
+    if (cancelled.current) {
+      cancelled.current = false;
+      return;
+    }
+    if (!editing) return;
+    const value = parseAmount(editing.text);
+    const current = transaction.details[editing.label] ?? 0;
+    setEditing(null);
+    if (value <= 0 || value === current) return;
+    await onSaveFee(transaction, editing.label, value);
+  };
+
+  return (
+    <div className="tx-inline">
+      {meta.length > 0 ? (
+        <div className="tx-inline-meta">
+          {meta.map((item) => (
+            <span className="meta-chip" key={item.label}>
+              <i>{item.label}</i>
+              <strong className={item.tone}>{item.value}</strong>
+            </span>
+          ))}
+        </div>
+      ) : null}
+      {fees.length > 0 ? (
+        <div className="tx-inline-fees">
+          <span className="tx-inline-label">
+            <ReceiptText size={12} />
+            Chi tiết phí
+            <span className="tx-inline-count">{fees.length}</span>
+          </span>
+          {fees.map(([label, value]) => {
+            if (editing?.label === label) {
+              return (
+                <span
+                  className="fee-chip fee-chip-editing"
+                  key={label}
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  <span>{feeLabel(label)}</span>
+                  <input
+                    className="fee-cell-input"
+                    autoFocus
+                    inputMode="numeric"
+                    value={editing.text}
+                    style={{ width: `${Math.max(4, editing.text.length + 1)}ch` }}
+                    onChange={(event) =>
+                      setEditing({ label, text: event.target.value.replace(/\D/g, '') })
+                    }
+                    onFocus={(event) => event.currentTarget.select()}
+                    onBlur={commitFee}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') {
+                        event.preventDefault();
+                        event.currentTarget.blur();
+                      } else if (event.key === 'Escape') {
+                        event.preventDefault();
+                        cancelled.current = true;
+                        setEditing(null);
+                      }
+                    }}
+                  />
+                  <span className="fee-chip-suffix">đ</span>
+                </span>
+              );
+            }
+            return (
+              <button
+                type="button"
+                className="fee-chip fee-chip-button"
+                key={label}
+                title={`Bấm để sửa ${feeLabel(label)}`}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  cancelled.current = false;
+                  setEditing({ label, text: String(value) });
+                }}
+              >
+                <span>{feeLabel(label)}</span>
+                <strong>{formatNumber(value)} đ</strong>
+              </button>
+            );
+          })}
+        </div>
       ) : null}
     </div>
   );

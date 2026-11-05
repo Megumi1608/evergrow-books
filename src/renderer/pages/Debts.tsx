@@ -211,7 +211,15 @@ function DebtRow({ item, onEdit, onPay }: { item: DebtItem; onEdit: () => void; 
       <td>
         <div className="tx-main">{transaction.party || transaction.categoryName}</div>
         <div className="tx-sub">
-          {[transaction.categoryName, transaction.goodsName].filter(Boolean).join(' · ')}
+          {[
+            transaction.categoryName,
+            transaction.goodsName,
+            Object.keys(transaction.details).length > 0
+              ? `${Object.keys(transaction.details).length} khoản phí`
+              : '',
+          ]
+            .filter(Boolean)
+            .join(' · ')}
         </div>
       </td>
       <td className="ref-cell">{transaction.reference || '—'}</td>
