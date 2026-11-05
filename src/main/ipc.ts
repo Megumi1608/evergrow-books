@@ -7,7 +7,11 @@ import { buildCsv, periodLabel, writeXlsx } from './exporters';
 import { commitImport, previewImport } from './importer';
 import { backupNow, createBackup, getBackupInfo, openBackupFolder } from './backups';
 import { checkForUpdates, getUpdateState, installUpdate, openReleases, RELEASES_URL } from './updater';
+import { AiService } from './ai/service';
 import {
+  validateAiChatInput,
+  validateAiConfigInput,
+  validateAiSessionId,
   validateBudgetInput,
   validateCategoryInput,
   validateCompanySettings,
@@ -73,6 +77,10 @@ function readAttachmentFile(file: string): { fileName: string; mimeType: string;
 
 export function registerIpc(deps: IpcDeps): void {
   const { store, getMainWindow, preloadPath, loadPrintRoute, trustedUrlPrefixes } = deps;
+  const ai = new AiService(store, path.join(app.getPath('userData'), 'ai-settings.json'), (event) => {
+    const win = getMainWindow();
+    if (win && !win.isDestroyed()) win.webContents.send('ai:event', event);
+  });
 
   const isTrusted = (event: IpcMainInvokeEvent): boolean => {
     const url = event.senderFrame?.url ?? '';
@@ -388,4 +396,25 @@ export function registerIpc(deps: IpcDeps): void {
   handle('update:check', () => checkForUpdates());
   handle('update:install', () => installUpdate());
   handle('update:open-releases', () => openReleases());
+
+  handle('ai:config:get', () => ai.config());
+  handle('ai:config:save', (input: unknown) => ai.saveConfig(validateAiConfigInput(input)));
+  handle('ai:config:clear-key', () => ai.clearKey());
+  handle('ai:test', () => ai.test());
+  handle('ai:sessions', () => ai.sessions());
+  handle('ai:messages', (sessionId: unknown) => ai.messages(validateAiSessionId(sessionId)));
+  handle('ai:chat', (input: unknown) => ai.chat(validateAiChatInput(input)));
+  handle('ai:abort', (requestId: unknown) => {
+    if (typeof requestId !== 'string' || requestId.length < 8 || requestId.length > 80) {
+      throw new Error('Yêu cầu dừng không hợp lệ.');
+    }
+    ai.abort(requestId);
+  });
+  handle('ai:approve', (id: unknown) => store.approveAiChange(validateId(id, 'Đề xuất')));
+  handle('ai:reject', (id: unknown) => store.rejectAiChange(validateId(id, 'Đề xuất')));
+  handle('ai:changes', (sessionId: unknown) => store.listAiChanges(validateAiSessionId(sessionId)));
+  handle('ai:revert-change', (id: unknown) => store.revertAiChange(validateId(id, 'Thay đổi')));
+  handle('ai:revert-session', (sessionId: unknown) =>
+    store.revertAiSession(validateAiSessionId(sessionId)),
+  );
 }

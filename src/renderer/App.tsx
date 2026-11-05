@@ -7,6 +7,7 @@ import { applyTheme, cacheTheme, readCachedTheme } from './theme';
 import { useHashRoute, type Route } from './hooks';
 import { useToast } from './components/toast';
 import { Sidebar } from './components/Sidebar';
+import { AiBubble } from './components/AiBubble';
 import { TransactionModal } from './components/TransactionModal';
 import { DashboardPage } from './pages/Dashboard';
 import { TransactionsPage } from './pages/Transactions';
@@ -16,6 +17,7 @@ import { BudgetsPage } from './pages/Budgets';
 import { CategoriesPage } from './pages/Categories';
 import { ReportsPage } from './pages/Reports';
 import { AppearancePage } from './pages/Appearance';
+import { AssistantPage } from './pages/Assistant';
 import { SettingsPage } from './pages/Settings';
 import { PrintReport } from './pages/PrintReport';
 
@@ -149,6 +151,7 @@ function Shell({ route }: { route: Route }) {
           <div className="main-inner">{renderPage(route.path)}</div>
         </main>
       </div>
+      <AiBubble />
       {modal ? (
         <TransactionModal
           transaction={modal.transaction}
@@ -190,6 +193,8 @@ function renderPage(path: string) {
       return <ReportsPage />;
     case '/appearance':
       return <AppearancePage />;
+    case '/assistant':
+      return <AssistantPage />;
     case '/settings':
       return <SettingsPage />;
     default:

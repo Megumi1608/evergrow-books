@@ -16,7 +16,7 @@ import { useApp } from '../context';
 import { useDebounced } from '../hooks';
 import { useToast } from '../components/toast';
 import { aggregateFees } from '../components/FeeBreakdown';
-import { EmptyState, Modal, PageHeader, PageLoading } from '../components/ui';
+import { DateInput, EmptyState, Modal, PageHeader, PageLoading } from '../components/ui';
 
 export function ShipmentsPage() {
   const { revision, openTransaction } = useApp();
@@ -125,11 +125,11 @@ export function ShipmentsPage() {
         </div>
         <label className="filter-item">
           <span>Từ ngày</span>
-          <input className="input" type="date" value={from} onChange={(event) => setFrom(event.target.value)} />
+          <DateInput value={from} onChange={(event) => setFrom(event.target.value)} aria-label="Từ ngày" />
         </label>
         <label className="filter-item">
           <span>Đến ngày</span>
-          <input className="input" type="date" value={to} onChange={(event) => setTo(event.target.value)} />
+          <DateInput value={to} onChange={(event) => setTo(event.target.value)} aria-label="Đến ngày" />
         </label>
         {hasFilters ? (
           <button type="button" className="btn btn-ghost btn-sm" onClick={resetFilters}>

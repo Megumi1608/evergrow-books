@@ -1,6 +1,8 @@
 import {
   CURRENCIES,
   METHODS,
+  type AiChatContext,
+  type AiConfigInput,
   type BudgetInput,
   type CategoryInput,
   type CompanySettings,
@@ -270,4 +272,67 @@ export function validatePaymentAmount(value: unknown): number {
     fail('Số tiền thanh toán phải là số nguyên dương.');
   }
   return value;
+}
+
+export function validateAiSessionId(value: unknown): string {
+  if (typeof value !== 'string' || !/^[a-zA-Z0-9-]{8,80}$/.test(value)) {
+    fail('Phiên trò chuyện không hợp lệ.');
+  }
+  return value;
+}
+
+export function validateAiConfigInput(value: unknown): AiConfigInput {
+  const input = asRecord(value, 'Cấu hình trợ lý');
+  if (input.provider !== 'openai' && input.provider !== 'anthropic') {
+    fail('Nhà cung cấp AI không hợp lệ.');
+  }
+  if (typeof input.baseUrl !== 'string' || input.baseUrl.length > 500) fail('Base URL không hợp lệ.');
+  if (typeof input.model !== 'string' || input.model.length > 120) fail('Model không hợp lệ.');
+  if (typeof input.temperature !== 'number' || !Number.isFinite(input.temperature) || input.temperature < 0 || input.temperature > 1) {
+    fail('Temperature phải nằm trong khoảng 0 đến 1.');
+  }
+  if (typeof input.enabled !== 'boolean') fail('Trạng thái bật/tắt không hợp lệ.');
+  if (input.apiKey !== undefined && (typeof input.apiKey !== 'string' || input.apiKey.length > 500)) {
+    fail('API key không hợp lệ.');
+  }
+  if (input.clearKey !== undefined && typeof input.clearKey !== 'boolean') fail('Yêu cầu xoá key không hợp lệ.');
+  return {
+    provider: input.provider,
+    baseUrl: input.baseUrl,
+    model: input.model,
+    temperature: input.temperature,
+    enabled: input.enabled,
+    apiKey: typeof input.apiKey === 'string' ? input.apiKey : undefined,
+    clearKey: input.clearKey === true,
+  };
+}
+
+export function validateAiChatInput(value: unknown): {
+  sessionId?: string;
+  text: string;
+  context?: AiChatContext;
+} {
+  const input = asRecord(value, 'Tin nhắn');
+  if (typeof input.text !== 'string' || !input.text.trim() || input.text.length > 2000) {
+    fail('Tin nhắn phải có nội dung và tối đa 2.000 ký tự.');
+  }
+  const result: { sessionId?: string; text: string; context?: AiChatContext } = {
+    text: input.text.trim(),
+  };
+  if (input.sessionId !== undefined && input.sessionId !== '') {
+    result.sessionId = validateAiSessionId(input.sessionId);
+  }
+  if (input.context !== undefined && input.context !== null) {
+    const context = asRecord(input.context, 'Ngữ cảnh');
+    const parsed: AiChatContext = {};
+    if (context.route !== undefined) {
+      if (typeof context.route !== 'string' || context.route.length > 120) fail('Màn hình hiện tại không hợp lệ.');
+      parsed.route = context.route;
+    }
+    if (context.month !== undefined && context.month !== '') {
+      parsed.month = validateMonth(context.month);
+    }
+    result.context = parsed;
+  }
+  return result;
 }

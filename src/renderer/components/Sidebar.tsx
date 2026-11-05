@@ -1,5 +1,6 @@
 import {
   ArrowLeftRight,
+  Bot,
   ChartColumn,
   Check,
   CircleAlert,
@@ -36,6 +37,7 @@ const NAV_SECTIONS = [
   {
     label: 'Hệ thống',
     items: [
+      { path: '/assistant', label: 'Trợ lý AI', icon: Bot },
       { path: '/appearance', label: 'Giao diện', icon: Palette },
       { path: '/settings', label: 'Cài đặt', icon: Settings },
     ],

@@ -84,6 +84,7 @@ export function MoneyChart({ data }: { data: MonthPoint[] }) {
                 height={Math.max(incomeHeight, point.income > 0 ? 2 : 0)}
                 rx={3}
                 className="chart-bar income"
+                style={{ animationDelay: `${index * 45}ms` }}
               >
                 <title>{`${formatMonthLabel(point.month)} · Thu ${formatVnd(point.income)}`}</title>
               </rect>
@@ -94,6 +95,7 @@ export function MoneyChart({ data }: { data: MonthPoint[] }) {
                 height={Math.max(expenseHeight, point.expense > 0 ? 2 : 0)}
                 rx={3}
                 className="chart-bar expense"
+                style={{ animationDelay: `${index * 45}ms` }}
               >
                 <title>{`${formatMonthLabel(point.month)} · Chi ${formatVnd(point.expense)}`}</title>
               </rect>
@@ -143,7 +145,11 @@ export function CategoryBars({
             <div className="bar-track">
               <div
                 className="bar-fill"
-                style={{ width: `${Math.max(percent, 2)}%`, opacity: Math.max(0.35, 0.9 - index * 0.12) }}
+                style={{
+                  width: `${Math.max(percent, 2)}%`,
+                  opacity: Math.max(0.35, 0.9 - index * 0.12),
+                  animationDelay: `${index * 45}ms`,
+                }}
               />
             </div>
             <div className="cat-meta">

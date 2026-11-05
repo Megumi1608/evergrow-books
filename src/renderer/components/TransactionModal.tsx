@@ -16,7 +16,7 @@ import { formatNumber, formatVnd, parseAmount } from '../../shared/format';
 import { api, getErrorMessage } from '../api';
 import { feeLabel, orderedDetailEntries } from './FeeBreakdown';
 import { useToast } from './toast';
-import { Modal, Segmented, Select } from './ui';
+import { Checkbox, DateInput, Dropdown, Modal, Segmented } from './ui';
 
 const METHOD_OPTIONS = Object.entries(METHOD_LABELS) as [Method, string][];
 const CURRENCY_OPTIONS = CURRENCIES.map((value) => ({ value, label: CURRENCY_LABELS[value] }));
@@ -330,18 +330,13 @@ export function TransactionModal({
         <div className="field amount-field">
           <div className="amount-head">
             <span className="field-label">Số tiền</span>
-            <Select
+            <Dropdown
               className="currency-select"
               value={currency}
-              onChange={(event) => changeCurrency(event.target.value as Currency)}
-              aria-label="Tiền tệ"
-            >
-              {CURRENCY_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </Select>
+              onChange={changeCurrency}
+              options={CURRENCY_OPTIONS}
+              ariaLabel="Tiền tệ"
+            />
           </div>
           <span className="amount-wrap">
             <input
@@ -386,37 +381,37 @@ export function TransactionModal({
         <div className="form-row">
           <label className="field">
             <span className="field-label">Ngày giao dịch</span>
-            <input
-              className="input"
-              type="date"
+            <DateInput
               value={occurredOn}
               max={todayIso()}
               onChange={(event) => setOccurredOn(event.target.value)}
+              aria-label="Ngày giao dịch"
             />
           </label>
           <label className="field">
             <span className="field-label">Hình thức</span>
-            <Select value={method} onChange={(event) => setMethod(event.target.value as Method)}>
-              {METHOD_OPTIONS.map(([value, label]) => (
-                <option key={value} value={value}>
-                  {label}
-                </option>
-              ))}
-            </Select>
+            <Dropdown
+              value={method}
+              onChange={setMethod}
+              options={METHOD_OPTIONS.map(([value, label]) => ({ value, label }))}
+              size="md"
+              ariaLabel="Hình thức thanh toán"
+            />
           </label>
         </div>
 
         <div className="form-row">
           <label className="field">
             <span className="field-label">Danh mục</span>
-            <Select value={categoryId} onChange={(event) => setCategoryId(Number(event.target.value))}>
-              {options.length === 0 ? <option value={0}>Chưa có danh mục</option> : null}
-              {options.map((category) => (
-                <option key={category.id} value={category.id}>
-                  {category.name}
-                </option>
-              ))}
-            </Select>
+            <Dropdown
+              value={categoryId}
+              onChange={setCategoryId}
+              options={options.map((category) => ({ value: category.id, label: category.name }))}
+              placeholder={options.length === 0 ? 'Chưa có danh mục' : 'Chọn danh mục'}
+              disabled={options.length === 0}
+              size="md"
+              ariaLabel="Danh mục"
+            />
           </label>
           <label className="field">
             <span className="field-label">Đối tác</span>
@@ -502,27 +497,21 @@ export function TransactionModal({
         </div>
 
         <div className="debt-block">
-          <label className="check-row">
-            <input
-              type="checkbox"
-              checked={trackDebt}
-              onChange={(event) => toggleDebt(event.target.checked)}
-            />
-            <span>
-              <strong>Theo dõi công nợ</strong>
-              <small>Bật để nhập hạn thanh toán và số tiền đã trả.</small>
-            </span>
-          </label>
+          <Checkbox
+            checked={trackDebt}
+            onChange={toggleDebt}
+            label="Theo dõi công nợ"
+            description="Bật để nhập hạn thanh toán và số tiền đã trả."
+          />
           {trackDebt ? (
             <>
               <div className="form-row">
                 <label className="field">
                   <span className="field-label">Hạn thanh toán</span>
-                  <input
-                    className="input"
-                    type="date"
+                  <DateInput
                     value={dueDate}
                     onChange={(event) => setDueDate(event.target.value)}
+                    aria-label="Hạn thanh toán"
                   />
                 </label>
                 <label className="field">

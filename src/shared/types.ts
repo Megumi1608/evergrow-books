@@ -365,6 +365,103 @@ export interface BackupInfo {
   count: number;
 }
 
+export type AiProvider = 'openai' | 'anthropic';
+
+export interface AiConfig {
+  provider: AiProvider;
+  baseUrl: string;
+  model: string;
+  temperature: number;
+  enabled: boolean;
+  hasKey: boolean;
+  keyHint: string;
+}
+
+export interface AiConfigInput {
+  provider: AiProvider;
+  baseUrl: string;
+  model: string;
+  temperature: number;
+  enabled: boolean;
+  apiKey?: string;
+  clearKey?: boolean;
+}
+
+export interface AiTestResult {
+  ok: boolean;
+  message: string;
+}
+
+export interface AiSession {
+  id: string;
+  title: string;
+  provider: string;
+  model: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AiSessionSummary extends AiSession {
+  messageCount: number;
+  changeCount: number;
+}
+
+export type AiOperation =
+  | 'create_transaction'
+  | 'update_transaction'
+  | 'delete_transaction'
+  | 'pay_debt';
+
+export type AiChangeStatus = 'pending' | 'approved' | 'rejected' | 'reverted';
+
+export interface AiFieldDiff {
+  label: string;
+  before: string;
+  after: string;
+}
+
+export interface AiChange {
+  id: number;
+  sessionId: string;
+  messageId: number | null;
+  operation: AiOperation;
+  targetId: number | null;
+  summary: string;
+  diff: AiFieldDiff[];
+  status: AiChangeStatus;
+  attachmentCount: number;
+  createdAt: string;
+  appliedAt: string | null;
+  revertedAt: string | null;
+}
+
+export interface AiMessage {
+  id: number;
+  sessionId: string;
+  role: 'user' | 'assistant';
+  content: string;
+  createdAt: string;
+  changes: AiChange[];
+}
+
+export interface AiChatContext {
+  route?: string;
+  month?: string;
+}
+
+export type AiEvent =
+  | { requestId: string; sessionId: string; type: 'delta'; text: string }
+  | { requestId: string; sessionId: string; type: 'proposal'; change: AiChange }
+  | { requestId: string; sessionId: string; type: 'tool'; name: string; state: 'running' | 'done' }
+  | { requestId: string; sessionId: string; type: 'done'; messageId: number }
+  | { requestId: string; sessionId: string; type: 'error'; message: string };
+
+export interface AiRevertResult {
+  reverted: number;
+  conflictId?: number;
+  message: string;
+}
+
 export interface EvergrowApi {
   getMeta(): Promise<AppMeta>;
   setWindowChrome(input: { background: string; symbol: string }): Promise<void>;
@@ -436,6 +533,26 @@ export interface EvergrowApi {
     install(): Promise<UpdateState>;
     openReleases(): Promise<void>;
     onState(cb: (state: UpdateState) => void): () => void;
+  };
+  ai: {
+    config(): Promise<AiConfig>;
+    saveConfig(input: AiConfigInput): Promise<AiConfig>;
+    clearKey(): Promise<AiConfig>;
+    test(): Promise<AiTestResult>;
+    sessions(): Promise<AiSessionSummary[]>;
+    messages(sessionId: string): Promise<AiMessage[]>;
+    chat(input: {
+      sessionId?: string;
+      text: string;
+      context?: AiChatContext;
+    }): Promise<{ requestId: string; sessionId: string }>;
+    abort(requestId: string): Promise<void>;
+    approve(changeId: number): Promise<AiChange>;
+    reject(changeId: number): Promise<AiChange>;
+    changes(sessionId: string): Promise<AiChange[]>;
+    revertChange(changeId: number): Promise<AiChange>;
+    revertSession(sessionId: string): Promise<AiRevertResult>;
+    onEvent(cb: (event: AiEvent) => void): () => void;
   };
   printReady(): void;
 }

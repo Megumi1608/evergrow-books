@@ -16,7 +16,7 @@ import { api, getErrorMessage } from '../api';
 import { useApp } from '../context';
 import { useToast } from '../components/toast';
 import { MoneyChart } from '../components/charts';
-import { EmptyState, PageHeader, PageLoading, Segmented, StatCard } from '../components/ui';
+import { DateInput, EmptyState, PageHeader, PageLoading, Segmented, StatCard } from '../components/ui';
 
 type Preset = 'month' | 'quarter' | 'year' | 'custom';
 
@@ -138,27 +138,25 @@ export function ReportsPage() {
         <div className="range-dates">
           <label className="filter-item">
             <span>Từ ngày</span>
-            <input
-              className="input"
-              type="date"
+            <DateInput
               value={from}
               onChange={(event) => {
                 setFrom(event.target.value);
                 setPreset('custom');
               }}
+              aria-label="Từ ngày"
             />
           </label>
           <span className="range-dash">–</span>
           <label className="filter-item">
             <span>Đến ngày</span>
-            <input
-              className="input"
-              type="date"
+            <DateInput
               value={to}
               onChange={(event) => {
                 setTo(event.target.value);
                 setPreset('custom');
               }}
+              aria-label="Đến ngày"
             />
           </label>
         </div>

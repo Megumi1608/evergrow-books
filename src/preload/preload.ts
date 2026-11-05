@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { EvergrowApi, TxFilter, UpdateState } from '../shared/types';
+import type { AiEvent, EvergrowApi, TxFilter, UpdateState } from '../shared/types';
 
 const api: EvergrowApi = {
   getMeta: () => ipcRenderer.invoke('app:meta'),
@@ -75,6 +75,26 @@ const api: EvergrowApi = {
       const listener = (_event: unknown, state: UpdateState) => callback(state);
       ipcRenderer.on('update:state', listener);
       return () => ipcRenderer.removeListener('update:state', listener);
+    },
+  },
+  ai: {
+    config: () => ipcRenderer.invoke('ai:config:get'),
+    saveConfig: (input) => ipcRenderer.invoke('ai:config:save', input),
+    clearKey: () => ipcRenderer.invoke('ai:config:clear-key'),
+    test: () => ipcRenderer.invoke('ai:test'),
+    sessions: () => ipcRenderer.invoke('ai:sessions'),
+    messages: (sessionId) => ipcRenderer.invoke('ai:messages', sessionId),
+    chat: (input) => ipcRenderer.invoke('ai:chat', input),
+    abort: (requestId) => ipcRenderer.invoke('ai:abort', requestId),
+    approve: (changeId) => ipcRenderer.invoke('ai:approve', changeId),
+    reject: (changeId) => ipcRenderer.invoke('ai:reject', changeId),
+    changes: (sessionId) => ipcRenderer.invoke('ai:changes', sessionId),
+    revertChange: (changeId) => ipcRenderer.invoke('ai:revert-change', changeId),
+    revertSession: (sessionId) => ipcRenderer.invoke('ai:revert-session', sessionId),
+    onEvent: (callback: (event: AiEvent) => void) => {
+      const listener = (_event: unknown, payload: AiEvent) => callback(payload);
+      ipcRenderer.on('ai:event', listener);
+      return () => ipcRenderer.removeListener('ai:event', listener);
     },
   },
   printReady: () => ipcRenderer.send('print:ready'),

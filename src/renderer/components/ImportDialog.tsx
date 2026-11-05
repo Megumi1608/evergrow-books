@@ -6,7 +6,7 @@ import { formatDate } from '../../shared/dates';
 import { formatNumber } from '../../shared/format';
 import { api, getErrorMessage } from '../api';
 import { useToast } from './toast';
-import { Modal, Select, Segmented } from './ui';
+import { Dropdown, Modal, Segmented } from './ui';
 
 const METHOD_OPTIONS = Object.entries(METHOD_LABELS) as [Method, string][];
 
@@ -160,13 +160,12 @@ export function ImportDialog({
         <div className="import-options">
           <div className="field">
             <span className="field-label">Hình thức thanh toán mặc định</span>
-            <Select value={method} onChange={(event) => setMethod(event.target.value as Method)}>
-              {METHOD_OPTIONS.map(([value, label]) => (
-                <option key={value} value={value}>
-                  {label}
-                </option>
-              ))}
-            </Select>
+            <Dropdown
+              value={method}
+              onChange={setMethod}
+              options={METHOD_OPTIONS.map(([value, label]) => ({ value, label }))}
+              ariaLabel="Hình thức thanh toán mặc định"
+            />
           </div>
           {preview.missingDates > 0 ? (
             <div className="field">

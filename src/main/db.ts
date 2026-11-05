@@ -1,9 +1,18 @@
 import { DatabaseSync, backup as sqliteBackup } from 'node:sqlite';
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { monthBounds, pad, shiftMonth, todayIso } from '../shared/dates';
 import { DEFAULT_THEME, getThemePreset, type ThemeSettings } from '../shared/theme';
 import type {
+  AiChange,
+  AiChangeStatus,
+  AiFieldDiff,
+  AiMessage,
+  AiOperation,
+  AiRevertResult,
+  AiSession,
+  AiSessionSummary,
   AttachmentMeta,
   BudgetData,
   BudgetInput,
@@ -33,6 +42,7 @@ import type {
   TxKind,
   TxPage,
 } from '../shared/types';
+import { validatePaymentAmount, validateTxInput } from './validation';
 
 const DEFAULT_COMPANY = 'Công ty của bạn';
 const SEED_COLORS_INCOME = ['#2F6B4F', '#3D7C8A', '#7A6A3A', '#5E6A52'];
@@ -142,6 +152,78 @@ function assertNotFuture(date: string): void {
   if (date > todayIso()) throw new Error('Ngày giao dịch không được ở tương lai.');
 }
 
+export interface AiChangeDraft {
+  sessionId: string;
+  messageId: number;
+  operation: AiOperation;
+  targetId: number | null;
+  summary: string;
+  diff: AiFieldDiff[];
+  payload: unknown;
+  before: unknown;
+  after: unknown;
+  baseUpdatedAt: string;
+  attachmentCount: number;
+}
+
+interface RawAiChangeRow {
+  id: number;
+  sessionId: string;
+  messageId: number | null;
+  operation: string;
+  targetId: number | null;
+  summary: string;
+  diffJson: string;
+  status: string;
+  attachmentCount: number;
+  createdAt: string;
+  appliedAt: string | null;
+  revertedAt: string | null;
+}
+
+interface RawAiChangeFull extends RawAiChangeRow {
+  payloadJson: string;
+  beforeJson: string;
+  afterJson: string;
+  baseUpdatedAt: string;
+}
+
+const AI_CHANGE_SELECT = `SELECT id, session_id AS sessionId, message_id AS messageId, operation,
+  target_id AS targetId, summary, diff_json AS diffJson, status,
+  attachment_count AS attachmentCount, created_at AS createdAt,
+  applied_at AS appliedAt, reverted_at AS revertedAt
+  FROM ai_changes`;
+
+function parseAiJson(value: string): unknown {
+  if (!value) return null;
+  try {
+    return JSON.parse(value) as unknown;
+  } catch {
+    return null;
+  }
+}
+
+function validateAiTarget(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isInteger(value) || value <= 0) {
+    throw new Error('Giao dịch không hợp lệ.');
+  }
+  return value;
+}
+
+function sameTxSnapshot(
+  current: Record<string, unknown> | null,
+  after: Record<string, unknown> | null,
+): boolean {
+  if (!current || !after) return false;
+  if (String(current.updated_at) !== String(after.updated_at)) return false;
+  const strip = (row: Record<string, unknown>): Record<string, unknown> => {
+    const copy = { ...row };
+    delete copy.updated_at;
+    return copy;
+  };
+  return JSON.stringify(strip(current)) === JSON.stringify(strip(after));
+}
+
 export class Store {
   private db: DatabaseSync;
 
@@ -233,6 +315,57 @@ export class Store {
         key TEXT PRIMARY KEY,
         value TEXT NOT NULL
       );
+
+      CREATE TABLE IF NOT EXISTS ai_sessions (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL DEFAULT '',
+        provider TEXT NOT NULL DEFAULT '',
+        model TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+
+      CREATE TABLE IF NOT EXISTS ai_messages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id TEXT NOT NULL REFERENCES ai_sessions(id) ON DELETE CASCADE,
+        role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
+        content TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_ai_messages_session ON ai_messages(session_id, id);
+
+      CREATE TABLE IF NOT EXISTS ai_changes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id TEXT NOT NULL REFERENCES ai_sessions(id) ON DELETE CASCADE,
+        message_id INTEGER REFERENCES ai_messages(id) ON DELETE SET NULL,
+        operation TEXT NOT NULL,
+        target_id INTEGER,
+        summary TEXT NOT NULL DEFAULT '',
+        diff_json TEXT NOT NULL DEFAULT '[]',
+        payload_json TEXT NOT NULL DEFAULT '{}',
+        before_json TEXT NOT NULL DEFAULT '',
+        after_json TEXT NOT NULL DEFAULT '',
+        base_updated_at TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'pending',
+        attachment_count INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        applied_at TEXT,
+        reverted_at TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_ai_changes_session ON ai_changes(session_id, id);
+      CREATE INDEX IF NOT EXISTS idx_ai_changes_status ON ai_changes(status);
+
+      CREATE TABLE IF NOT EXISTS ai_backup_attachments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        change_id INTEGER NOT NULL REFERENCES ai_changes(id) ON DELETE CASCADE,
+        attachment_id INTEGER NOT NULL,
+        file_name TEXT NOT NULL,
+        mime_type TEXT NOT NULL,
+        size INTEGER NOT NULL,
+        data BLOB NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_ai_backup_attachments_change ON ai_backup_attachments(change_id);
     `);
     this.migrateLegacySchema(db);
     const count = db.prepare('SELECT COUNT(*) AS count FROM categories').get() as { count: number };
@@ -281,7 +414,7 @@ export class Store {
       CREATE UNIQUE INDEX IF NOT EXISTS idx_tx_source_key
         ON transactions(source_key) WHERE source_key IS NOT NULL;
       CREATE INDEX IF NOT EXISTS idx_tx_import_batch ON transactions(import_batch_id);
-      PRAGMA user_version = 4;
+      PRAGMA user_version = 5;
     `);
   }
 
@@ -1180,6 +1313,516 @@ export class Store {
       }
     }
     return { inserted };
+  }
+
+  getTransactionById(id: number): Transaction | undefined {
+    return this.getTransaction(id);
+  }
+
+  getTransactionSnapshot(id: number): Record<string, unknown> | null {
+    return this.txSnapshot(id);
+  }
+
+  private txSnapshot(id: number): Record<string, unknown> | null {
+    const row = this.db.prepare('SELECT * FROM transactions WHERE id = ?').get(id) as
+      | Record<string, unknown>
+      | undefined;
+    return row ?? null;
+  }
+
+  createAiSession(provider: string, model: string): AiSession {
+    const id = randomUUID();
+    this.db
+      .prepare('INSERT INTO ai_sessions (id, provider, model) VALUES (?, ?, ?)')
+      .run(id, provider, model);
+    return this.getAiSession(id)!;
+  }
+
+  getAiSession(id: string): AiSession | undefined {
+    return this.db
+      .prepare(
+        `SELECT id, title, provider, model, created_at AS createdAt, updated_at AS updatedAt
+         FROM ai_sessions WHERE id = ?`,
+      )
+      .get(id) as unknown as AiSession | undefined;
+  }
+
+  listAiSessions(): AiSessionSummary[] {
+    return this.db
+      .prepare(
+        `SELECT s.id, s.title, s.provider, s.model, s.created_at AS createdAt, s.updated_at AS updatedAt,
+                (SELECT COUNT(*) FROM ai_messages m WHERE m.session_id = s.id) AS messageCount,
+                (SELECT COUNT(*) FROM ai_changes c WHERE c.session_id = s.id) AS changeCount
+         FROM ai_sessions s ORDER BY s.updated_at DESC, s.created_at DESC LIMIT 50`,
+      )
+      .all() as unknown as AiSessionSummary[];
+  }
+
+  listAiMessages(sessionId: string): AiMessage[] {
+    const messages = this.db
+      .prepare(
+        `SELECT id, session_id AS sessionId, role, content, created_at AS createdAt
+         FROM ai_messages WHERE session_id = ? ORDER BY id ASC`,
+      )
+      .all(sessionId) as unknown as Omit<AiMessage, 'changes'>[];
+    const changes = this.listAiChanges(sessionId);
+    const byMessage = new Map<number, AiChange[]>();
+    for (const change of changes) {
+      if (change.messageId === null) continue;
+      const list = byMessage.get(change.messageId) ?? [];
+      list.push(change);
+      byMessage.set(change.messageId, list);
+    }
+    return messages.map((message) => ({ ...message, changes: byMessage.get(message.id) ?? [] }));
+  }
+
+  appendAiMessage(sessionId: string, role: 'user' | 'assistant', content: string): AiMessage {
+    const result = this.db
+      .prepare('INSERT INTO ai_messages (session_id, role, content) VALUES (?, ?, ?)')
+      .run(sessionId, role, content);
+    const id = Number(result.lastInsertRowid);
+    this.touchAiSession(sessionId);
+    if (role === 'user') {
+      const session = this.getAiSession(sessionId);
+      if (session && !session.title.trim()) {
+        const title = content.replace(/\s+/g, ' ').trim().slice(0, 60);
+        this.db.prepare('UPDATE ai_sessions SET title = ? WHERE id = ?').run(title, sessionId);
+      }
+    }
+    return {
+      id,
+      sessionId,
+      role,
+      content,
+      createdAt:
+        (this.db.prepare('SELECT created_at AS createdAt FROM ai_messages WHERE id = ?').get(id) as {
+          createdAt: string;
+        }).createdAt,
+      changes: [],
+    };
+  }
+
+  updateAiMessageContent(id: number, sessionId: string, content: string): void {
+    this.db.prepare('UPDATE ai_messages SET content = ? WHERE id = ?').run(content, id);
+    this.touchAiSession(sessionId);
+  }
+
+  private touchAiSession(sessionId: string): void {
+    this.db.prepare("UPDATE ai_sessions SET updated_at = datetime('now') WHERE id = ?").run(sessionId);
+  }
+
+  createAiChange(draft: AiChangeDraft): AiChange {
+    const result = this.db
+      .prepare(
+        `INSERT INTO ai_changes
+           (session_id, message_id, operation, target_id, summary, diff_json, payload_json,
+            before_json, after_json, base_updated_at, attachment_count)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        draft.sessionId,
+        draft.messageId,
+        draft.operation,
+        draft.targetId,
+        draft.summary,
+        JSON.stringify(draft.diff),
+        JSON.stringify(draft.payload ?? {}),
+        JSON.stringify(draft.before ?? null),
+        JSON.stringify(draft.after ?? null),
+        draft.baseUpdatedAt,
+        draft.attachmentCount,
+      );
+    this.touchAiSession(draft.sessionId);
+    return this.getAiChange(Number(result.lastInsertRowid))!;
+  }
+
+  listAiChanges(sessionId: string): AiChange[] {
+    const rows = this.db
+      .prepare(`${AI_CHANGE_SELECT} WHERE session_id = ? ORDER BY id ASC`)
+      .all(sessionId) as unknown as RawAiChangeRow[];
+    return rows.map((row) => this.toAiChange(row));
+  }
+
+  getAiChange(id: number): AiChange | undefined {
+    const row = this.db.prepare(`${AI_CHANGE_SELECT} WHERE id = ?`).get(id) as unknown as
+      | RawAiChangeRow
+      | undefined;
+    return row ? this.toAiChange(row) : undefined;
+  }
+
+  private getAiChangeFull(id: number): RawAiChangeFull | undefined {
+    return this.db
+      .prepare(
+        `SELECT id, session_id AS sessionId, message_id AS messageId, operation, target_id AS targetId,
+                summary, diff_json AS diffJson, payload_json AS payloadJson, before_json AS beforeJson,
+                after_json AS afterJson, base_updated_at AS baseUpdatedAt, status,
+                attachment_count AS attachmentCount, created_at AS createdAt,
+                applied_at AS appliedAt, reverted_at AS revertedAt
+         FROM ai_changes WHERE id = ?`,
+      )
+      .get(id) as unknown as RawAiChangeFull | undefined;
+  }
+
+  private toAiChange(row: RawAiChangeRow): AiChange {
+    let diff: AiFieldDiff[] = [];
+    try {
+      const parsed = JSON.parse(row.diffJson) as unknown;
+      if (Array.isArray(parsed)) {
+        diff = parsed.filter(
+          (item): item is AiFieldDiff =>
+            Boolean(item) &&
+            typeof item === 'object' &&
+            typeof (item as AiFieldDiff).label === 'string' &&
+            typeof (item as AiFieldDiff).before === 'string' &&
+            typeof (item as AiFieldDiff).after === 'string',
+        );
+      }
+    } catch {
+      diff = [];
+    }
+    return {
+      id: row.id,
+      sessionId: row.sessionId,
+      messageId: row.messageId,
+      operation: row.operation as AiOperation,
+      targetId: row.targetId,
+      summary: row.summary,
+      diff,
+      status: row.status as AiChangeStatus,
+      attachmentCount: row.attachmentCount,
+      createdAt: row.createdAt,
+      appliedAt: row.appliedAt,
+      revertedAt: row.revertedAt,
+    };
+  }
+
+  approveAiChange(id: number): AiChange {
+    const change = this.getAiChangeFull(id);
+    if (!change) throw new Error('Không tìm thấy đề xuất của trợ lý.');
+    if (change.status !== 'pending') throw new Error('Đề xuất này đã được xử lý.');
+    const payload = parseAiJson(change.payloadJson) ?? {};
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      let targetId = change.targetId;
+      let before: Record<string, unknown> | null = null;
+      let after: Record<string, unknown> | null = null;
+      let attachmentCount = 0;
+
+      if (change.operation === 'create_transaction') {
+        const input = validateTxInput(payload);
+        const created = this.createTransaction(input);
+        targetId = created.id;
+        after = this.txSnapshot(created.id);
+      } else if (change.operation === 'update_transaction') {
+        const record = payload as { id?: unknown; input?: unknown };
+        const currentId = validateAiTarget(record.id);
+        const current = this.txSnapshot(currentId);
+        if (!current) throw new Error('Không tìm thấy giao dịch cần sửa.');
+        const base = parseAiJson(change.beforeJson) as Record<string, unknown> | null;
+        if (!sameTxSnapshot(current, base)) {
+          throw new Error('Giao dịch đã thay đổi sau khi trợ lý đề xuất. Hãy yêu cầu trợ lý làm lại.');
+        }
+        const input = validateTxInput(record.input);
+        before = current;
+        this.updateTransaction(currentId, input);
+        after = this.txSnapshot(currentId);
+        targetId = currentId;
+      } else if (change.operation === 'delete_transaction') {
+        const record = payload as { id?: unknown };
+        const currentId = validateAiTarget(record.id);
+        const current = this.txSnapshot(currentId);
+        if (!current) throw new Error('Không tìm thấy giao dịch cần xoá.');
+        const base = parseAiJson(change.beforeJson) as Record<string, unknown> | null;
+        if (!sameTxSnapshot(current, base)) {
+          throw new Error('Giao dịch đã thay đổi sau khi trợ lý đề xuất. Hãy yêu cầu trợ lý làm lại.');
+        }
+        before = current;
+        const attachments = this.db
+          .prepare('SELECT * FROM attachments WHERE transaction_id = ?')
+          .all(currentId) as unknown as {
+          id: number;
+          file_name: string;
+          mime_type: string;
+          size: number;
+          data: Uint8Array;
+        }[];
+        attachmentCount = attachments.length;
+        for (const attachment of attachments) {
+          this.db
+            .prepare(
+              `INSERT INTO ai_backup_attachments
+                 (change_id, attachment_id, file_name, mime_type, size, data)
+               VALUES (?, ?, ?, ?, ?, ?)`,
+            )
+            .run(id, attachment.id, attachment.file_name, attachment.mime_type, attachment.size, attachment.data);
+        }
+        this.removeTransaction(currentId);
+        after = null;
+        targetId = currentId;
+      } else if (change.operation === 'pay_debt') {
+        const record = payload as { id?: unknown; amount?: unknown };
+        const currentId = validateAiTarget(record.id);
+        const amount = validatePaymentAmount(record.amount);
+        const current = this.txSnapshot(currentId);
+        if (!current) throw new Error('Không tìm thấy giao dịch công nợ.');
+        const base = parseAiJson(change.beforeJson) as Record<string, unknown> | null;
+        if (!sameTxSnapshot(current, base)) {
+          throw new Error('Giao dịch đã thay đổi sau khi trợ lý đề xuất. Hãy yêu cầu trợ lý làm lại.');
+        }
+        before = current;
+        this.payDebt(currentId, amount);
+        after = this.txSnapshot(currentId);
+        targetId = currentId;
+      } else {
+        throw new Error('Thao tác của trợ lý không hợp lệ.');
+      }
+
+      this.db
+        .prepare(
+          `UPDATE ai_changes
+             SET status = 'approved', target_id = ?, before_json = ?, after_json = ?,
+                 attachment_count = ?, applied_at = datetime('now')
+           WHERE id = ?`,
+        )
+        .run(
+          targetId,
+          JSON.stringify(before),
+          after ? JSON.stringify(after) : '',
+          attachmentCount,
+          id,
+        );
+      this.touchAiSession(change.sessionId);
+      this.db.exec('COMMIT');
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
+    return this.getAiChange(id)!;
+  }
+
+  rejectAiChange(id: number): AiChange {
+    const result = this.db
+      .prepare("UPDATE ai_changes SET status = 'rejected' WHERE id = ? AND status = 'pending'")
+      .run(id);
+    if (Number(result.changes) === 0) throw new Error('Đề xuất không còn ở trạng thái chờ duyệt.');
+    const change = this.getAiChange(id)!;
+    this.touchAiSession(change.sessionId);
+    return change;
+  }
+
+  revertAiChange(id: number): AiChange {
+    const change = this.getAiChangeFull(id);
+    if (!change) throw new Error('Không tìm thấy thay đổi của trợ lý.');
+    if (change.status !== 'approved' || change.revertedAt) {
+      throw new Error('Chỉ có thể hoàn tác thay đổi đã áp dụng và chưa hoàn tác.');
+    }
+    const before = parseAiJson(change.beforeJson) as Record<string, unknown> | null;
+    const after = parseAiJson(change.afterJson) as Record<string, unknown> | null;
+
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      if (change.operation === 'create_transaction') {
+        const currentId = change.targetId;
+        if (!currentId) throw new Error('Thiếu giao dịch cần hoàn tác.');
+        const current = this.txSnapshot(currentId);
+        if (!current) throw new Error('Giao dịch đã bị xoá trước đó.');
+        if (!sameTxSnapshot(current, after)) {
+          throw new Error('Giao dịch đã thay đổi sau khi trợ lý tạo. Không thể hoàn tác an toàn.');
+        }
+        const attachments = this.db
+          .prepare('SELECT COUNT(*) AS count FROM attachments WHERE transaction_id = ?')
+          .get(currentId) as { count: number };
+        if (attachments.count > 0) {
+          throw new Error('Giao dịch đã có chứng từ đính kèm. Hãy xoá chứng từ trước khi hoàn tác.');
+        }
+        this.removeTransaction(currentId);
+      } else if (change.operation === 'update_transaction') {
+        const currentId = change.targetId;
+        if (!currentId) throw new Error('Thiếu giao dịch cần hoàn tác.');
+        const current = this.txSnapshot(currentId);
+        if (!current) throw new Error('Giao dịch đã bị xoá trước đó.');
+        if (!sameTxSnapshot(current, after)) {
+          throw new Error('Giao dịch đã thay đổi sau khi trợ lý sửa. Không thể hoàn tác an toàn.');
+        }
+        this.restoreTransaction(currentId, before);
+      } else if (change.operation === 'delete_transaction') {
+        if (!before) throw new Error('Thiếu bản sao giao dịch đã xoá.');
+        const currentId = change.targetId;
+        if (!currentId) throw new Error('Thiếu giao dịch cần khôi phục.');
+        if (this.txSnapshot(currentId)) throw new Error('Một giao dịch cùng mã đã tồn tại.');
+        this.insertTransactionSnapshot(before);
+        const attachments = this.db
+          .prepare(
+            `SELECT attachment_id AS attachmentId, file_name AS fileName, mime_type AS mimeType,
+                    size, data
+             FROM ai_backup_attachments WHERE change_id = ? ORDER BY id ASC`,
+          )
+          .all(id) as unknown as {
+          attachmentId: number;
+          fileName: string;
+          mimeType: string;
+          size: number;
+          data: Uint8Array;
+        }[];
+        for (const attachment of attachments) {
+          const exists = this.db
+            .prepare('SELECT 1 FROM attachments WHERE id = ?')
+            .get(attachment.attachmentId);
+          if (exists) {
+            this.db
+              .prepare(
+                'INSERT INTO attachments (transaction_id, file_name, mime_type, size, data) VALUES (?, ?, ?, ?, ?)',
+              )
+              .run(currentId, attachment.fileName, attachment.mimeType, attachment.size, attachment.data);
+          } else {
+            this.db
+              .prepare(
+                'INSERT INTO attachments (id, transaction_id, file_name, mime_type, size, data) VALUES (?, ?, ?, ?, ?, ?)',
+              )
+              .run(
+                attachment.attachmentId,
+                currentId,
+                attachment.fileName,
+                attachment.mimeType,
+                attachment.size,
+                attachment.data,
+              );
+          }
+        }
+      } else if (change.operation === 'pay_debt') {
+        const currentId = change.targetId;
+        if (!currentId) throw new Error('Thiếu giao dịch công nợ.');
+        const current = this.txSnapshot(currentId);
+        if (!current) throw new Error('Giao dịch đã bị xoá trước đó.');
+        if (!sameTxSnapshot(current, after)) {
+          throw new Error('Giao dịch đã thay đổi sau khi ghi thanh toán. Không thể hoàn tác an toàn.');
+        }
+        this.db
+          .prepare(
+            "UPDATE transactions SET paid_amount = ?, updated_at = datetime('now') WHERE id = ?",
+          )
+          .run(Number(before?.paid_amount ?? 0), currentId);
+      } else {
+        throw new Error('Thao tác của trợ lý không hợp lệ.');
+      }
+
+      this.db
+        .prepare("UPDATE ai_changes SET status = 'reverted', reverted_at = datetime('now') WHERE id = ?")
+        .run(id);
+      this.touchAiSession(change.sessionId);
+      this.db.exec('COMMIT');
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
+    return this.getAiChange(id)!;
+  }
+
+  revertAiSession(sessionId: string): AiRevertResult {
+    const rows = this.db
+      .prepare(
+        `SELECT id FROM ai_changes
+         WHERE session_id = ? AND status = 'approved' AND reverted_at IS NULL
+         ORDER BY id DESC`,
+      )
+      .all(sessionId) as unknown as { id: number }[];
+    let reverted = 0;
+    for (const row of rows) {
+      try {
+        this.revertAiChange(row.id);
+        reverted += 1;
+      } catch (error) {
+        return {
+          reverted,
+          conflictId: row.id,
+          message: error instanceof Error ? error.message : 'Không thể hoàn tác thay đổi.',
+        };
+      }
+    }
+    return {
+      reverted,
+      message: reverted > 0 ? `Đã hoàn tác ${reverted} thay đổi.` : 'Không có thay đổi nào để hoàn tác.',
+    };
+  }
+
+  private restoreTransaction(id: number, snapshot: Record<string, unknown> | null): void {
+    if (!snapshot) throw new Error('Thiếu bản sao giao dịch.');
+    const row = snapshot as Record<string, string | number | null>;
+    this.ensureCategoryMatches(Number(row.category_id), String(row.kind) as TxKind);
+    this.db
+      .prepare(
+        `UPDATE transactions SET
+           kind = ?, amount = ?, occurred_on = ?, category_id = ?, party = ?, note = ?, method = ?,
+           reference = ?, port = ?, goods_name = ?, goods_type = ?, container_no = ?,
+           container_size = ?, carrier = ?, details_json = ?, source_key = ?, due_date = ?,
+           paid_amount = ?, currency = ?, original_amount = ?, exchange_rate = ?,
+           import_batch_id = ?, created_at = ?, updated_at = datetime('now')
+         WHERE id = ?`,
+      )
+      .run(
+        row.kind,
+        row.amount,
+        row.occurred_on,
+        row.category_id,
+        row.party,
+        row.note,
+        row.method,
+        row.reference,
+        row.port,
+        row.goods_name,
+        row.goods_type,
+        row.container_no,
+        row.container_size,
+        row.carrier,
+        row.details_json,
+        row.source_key ?? null,
+        row.due_date,
+        row.paid_amount,
+        row.currency,
+        row.original_amount,
+        row.exchange_rate,
+        row.import_batch_id ?? null,
+        row.created_at,
+        id,
+      );
+  }
+
+  private insertTransactionSnapshot(snapshot: Record<string, unknown>): void {
+    const row = snapshot as Record<string, string | number | null>;
+    this.ensureCategoryMatches(Number(row.category_id), String(row.kind) as TxKind);
+    const columns = [
+      'id',
+      'kind',
+      'amount',
+      'occurred_on',
+      'category_id',
+      'party',
+      'note',
+      'method',
+      'reference',
+      'port',
+      'goods_name',
+      'goods_type',
+      'container_no',
+      'container_size',
+      'carrier',
+      'details_json',
+      'source_key',
+      'due_date',
+      'paid_amount',
+      'currency',
+      'original_amount',
+      'exchange_rate',
+      'import_batch_id',
+      'created_at',
+      'updated_at',
+    ];
+    this.db
+      .prepare(
+        `INSERT INTO transactions (${columns.join(', ')})
+         VALUES (${columns.map(() => '?').join(', ')})`,
+      )
+      .run(...columns.map((column) => row[column] ?? null));
   }
 
   resetAll(): void {

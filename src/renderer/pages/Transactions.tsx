@@ -35,11 +35,12 @@ import { ImportDialog } from '../components/ImportDialog';
 import { feeLabel, orderedDetailEntries } from '../components/FeeBreakdown';
 import {
   ConfirmDialog,
+  DateInput,
+  Dropdown,
   EmptyState,
   PageHeader,
   PageLoading,
   Segmented,
-  Select,
 } from '../components/ui';
 
 const PAGE_SIZE = 50;
@@ -266,11 +267,11 @@ export function TransactionsPage() {
         </div>
         <label className="filter-item">
           <span>Từ ngày</span>
-          <input className="input" type="date" value={from} onChange={(event) => setFrom(event.target.value)} />
+          <DateInput value={from} onChange={(event) => setFrom(event.target.value)} aria-label="Từ ngày" />
         </label>
         <label className="filter-item">
           <span>Đến ngày</span>
-          <input className="input" type="date" value={to} onChange={(event) => setTo(event.target.value)} />
+          <DateInput value={to} onChange={(event) => setTo(event.target.value)} aria-label="Đến ngày" />
         </label>
         <Segmented
           value={kind}
@@ -282,23 +283,22 @@ export function TransactionsPage() {
             { value: 'expense', label: 'Chi' },
           ]}
         />
-        <Select value={categoryId} onChange={(event) => setCategoryId(Number(event.target.value))}>
-          <option value={0}>Tất cả danh mục</option>
-          <optgroup label="Thu nhập">
-            {incomeCategories.map((category) => (
-              <option key={category.id} value={category.id}>
-                {category.name}
-              </option>
-            ))}
-          </optgroup>
-          <optgroup label="Chi phí">
-            {expenseCategories.map((category) => (
-              <option key={category.id} value={category.id}>
-                {category.name}
-              </option>
-            ))}
-          </optgroup>
-        </Select>
+        <Dropdown
+          value={categoryId}
+          onChange={setCategoryId}
+          ariaLabel="Lọc theo danh mục"
+          groups={[
+            { options: [{ value: 0, label: 'Tất cả danh mục' }] },
+            {
+              label: 'Thu nhập',
+              options: incomeCategories.map((category) => ({ value: category.id, label: category.name })),
+            },
+            {
+              label: 'Chi phí',
+              options: expenseCategories.map((category) => ({ value: category.id, label: category.name })),
+            },
+          ]}
+        />
         {hasFilters ? (
           <button type="button" className="btn btn-ghost btn-sm" onClick={resetFilters}>
             <RotateCcw size={14} />
