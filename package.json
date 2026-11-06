@@ -1,7 +1,7 @@
 {
   "name": "evergrow-books",
   "productName": "Evergrow Books",
-  "version": "1.7.0",
+  "version": "1.7.1",
   "private": true,
   "description": "Sổ thu chi doanh nghiệp — dữ liệu SQLite cục bộ",
   "main": "dist-electron/main.cjs",
