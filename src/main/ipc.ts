@@ -23,6 +23,7 @@ import {
   validateLookupValue,
   validateMonth,
   validatePaymentAmount,
+  validatePaymentRequest,
   validateRange,
   validateReference,
   validateTheme,
@@ -35,7 +36,11 @@ interface IpcDeps {
   store: Store;
   getMainWindow: () => BrowserWindow | null;
   preloadPath: string;
-  loadPrintRoute: (win: BrowserWindow, from: string, to: string) => Promise<void>;
+  loadPrintRoute: (
+    win: BrowserWindow,
+    pathName: string,
+    params: Record<string, string>,
+  ) => Promise<void>;
   trustedUrlPrefixes: string[];
 }
 
@@ -119,6 +124,60 @@ export function registerIpc(deps: IpcDeps): void {
     const win = getMainWindow();
     const result = win ? await dialog.showSaveDialog(win, options) : await dialog.showSaveDialog(options);
     return result.canceled || !result.filePath ? undefined : result.filePath;
+  };
+
+  const savePdfRoute = async (
+    defaultName: string,
+    routePath: string,
+    params: Record<string, string>,
+  ): Promise<{ saved: boolean; path?: string }> => {
+    const target = await saveDialog(defaultName, 'PDF', ['pdf']);
+    if (!target) return { saved: false };
+    const file = withExtension(target, 'pdf');
+
+    const win = new BrowserWindow({
+      show: false,
+      width: 940,
+      height: 1280,
+      backgroundColor: '#ffffff',
+      webPreferences: {
+        preload: preloadPath,
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: true,
+        backgroundThrottling: false,
+      },
+    });
+    win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+
+    try {
+      const ready = new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          printWaiters.delete(win.webContents.id);
+          reject(new Error('Hết thời gian tạo tệp PDF.'));
+        }, 25000);
+        printWaiters.set(win.webContents.id, () => {
+          clearTimeout(timeout);
+          resolve();
+        });
+        win.webContents.once('render-process-gone', () => {
+          clearTimeout(timeout);
+          reject(new Error('Không thể dựng trang PDF.'));
+        });
+      });
+      await loadPrintRoute(win, routePath, params);
+      await ready;
+      const pdf = await win.webContents.printToPDF({
+        printBackground: true,
+        pageSize: 'A4',
+        preferCSSPageSize: true,
+      });
+      fs.writeFileSync(file, pdf);
+      return { saved: true, path: file };
+    } finally {
+      printWaiters.delete(win.webContents.id);
+      if (!win.isDestroyed()) win.destroy();
+    }
   };
 
   const withExtension = (target: string, extension: string): string =>
@@ -296,53 +355,15 @@ export function registerIpc(deps: IpcDeps): void {
   handle('export:pdf', async (filterInput: unknown) => {
     const filter = validateFilter(filterInput);
     const { from, to } = validateRange({ from: filter.from, to: filter.to });
-    const target = await saveDialog(`bao-cao_${from}_${to}.pdf`, 'PDF', ['pdf']);
-    if (!target) return { saved: false };
-    const file = withExtension(target, 'pdf');
+    return savePdfRoute(`bao-cao_${from}_${to}.pdf`, '/print', { from, to });
+  });
 
-    const win = new BrowserWindow({
-      show: false,
-      width: 940,
-      height: 1280,
-      backgroundColor: '#ffffff',
-      webPreferences: {
-        preload: preloadPath,
-        contextIsolation: true,
-        nodeIntegration: false,
-        sandbox: true,
-        backgroundThrottling: false,
-      },
+  handle('payment:export', async (input: unknown) => {
+    const data = validatePaymentRequest(input);
+    const ref = data.reference.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 40);
+    return savePdfRoute(`yeu-cau-thanh-toan_${ref || todayIso()}.pdf`, '/print-payment', {
+      data: JSON.stringify(data),
     });
-    win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
-
-    try {
-      const ready = new Promise<void>((resolve, reject) => {
-        const timeout = setTimeout(() => {
-          printWaiters.delete(win.webContents.id);
-          reject(new Error('Hết thời gian tạo báo cáo PDF.'));
-        }, 25000);
-        printWaiters.set(win.webContents.id, () => {
-          clearTimeout(timeout);
-          resolve();
-        });
-        win.webContents.once('render-process-gone', () => {
-          clearTimeout(timeout);
-          reject(new Error('Không thể dựng trang báo cáo.'));
-        });
-      });
-      await loadPrintRoute(win, from, to);
-      await ready;
-      const pdf = await win.webContents.printToPDF({
-        printBackground: true,
-        pageSize: 'A4',
-        preferCSSPageSize: true,
-      });
-      fs.writeFileSync(file, pdf);
-      return { saved: true, path: file };
-    } finally {
-      printWaiters.delete(win.webContents.id);
-      if (!win.isDestroyed()) win.destroy();
-    }
   });
 
   handle('data:backup', async () => {

@@ -20,10 +20,12 @@ import { AppearancePage } from './pages/Appearance';
 import { AssistantPage } from './pages/Assistant';
 import { SettingsPage } from './pages/Settings';
 import { PrintReport } from './pages/PrintReport';
+import { PrintPayment } from './pages/PrintPayment';
 
 export function App() {
   const route = useHashRoute();
   if (route.path === '/print') return <PrintReport params={route.params} />;
+  if (route.path === '/print-payment') return <PrintPayment params={route.params} />;
   return <Shell route={route} />;
 }
 

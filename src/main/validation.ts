@@ -12,6 +12,7 @@ import {
   type LookupKind,
   type Method,
   type MissingDatePolicy,
+  type PaymentRequestInput,
   type TxFilter,
   type TxInput,
   type TxKind,
@@ -185,6 +186,31 @@ export function validateTxInput(value: unknown): TxInput {
     currency: currencyValue,
     originalAmount,
     exchangeRate,
+  };
+}
+
+export function validatePaymentRequest(value: unknown): PaymentRequestInput {
+  const input = asRecord(value, 'Dữ liệu yêu cầu thanh toán');
+  const money = (raw: unknown, label: string): number => {
+    if (typeof raw !== 'number' || !Number.isFinite(raw) || raw < 0 || raw > MAX_AMOUNT) {
+      fail(`${label} không hợp lệ.`);
+    }
+    return Math.round(raw);
+  };
+  return {
+    customer: text(input.customer, 'Khách hàng', 160),
+    reference: text(input.reference, 'Số tờ khai', 80),
+    port: text(input.port, 'Cửa khẩu', 80),
+    goodsName: text(input.goodsName, 'Tên hàng', 160),
+    goodsType: text(input.goodsType, 'Loại hàng', 80),
+    containerNo: text(input.containerNo, 'Số container', 80),
+    containerSize: text(input.containerSize, 'Kích thước container', 80),
+    deliveryDate: input.deliveryDate
+      ? validateDate(input.deliveryDate, 'Ngày giao hàng')
+      : '',
+    note: text(input.note, 'Ghi chú', 500),
+    serviceRevenue: money(input.serviceRevenue, 'Phí dịch vụ container'),
+    truckFee: money(input.truckFee, 'Tiền xe'),
   };
 }
 

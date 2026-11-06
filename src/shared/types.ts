@@ -174,6 +174,20 @@ export interface ExportResult {
   path?: string;
 }
 
+export interface PaymentRequestInput {
+  customer: string;
+  reference: string;
+  port: string;
+  goodsName: string;
+  goodsType: string;
+  containerNo: string;
+  containerSize: string;
+  deliveryDate: string;
+  note: string;
+  serviceRevenue: number;
+  truckFee: number;
+}
+
 export interface SeedResult {
   inserted: number;
 }
@@ -499,6 +513,9 @@ export interface EvergrowApi {
   };
   report(range: { from: string; to: string }): Promise<ReportData>;
   exportFile(format: 'csv' | 'xlsx' | 'pdf', filter: TxFilter): Promise<ExportResult>;
+  paymentRequest: {
+    export(input: PaymentRequestInput): Promise<ExportResult>;
+  };
   importFile: {
     preview(): Promise<ImportPreviewResult>;
     commit(token: string, options: ImportCommitOptions): Promise<ImportResult>;

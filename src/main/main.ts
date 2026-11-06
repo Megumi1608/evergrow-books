@@ -117,8 +117,12 @@ function createWindow(): void {
   }
 }
 
-async function loadPrintRoute(win: BrowserWindow, from: string, to: string): Promise<void> {
-  const hash = `/print?${new URLSearchParams({ from, to }).toString()}`;
+async function loadPrintRoute(
+  win: BrowserWindow,
+  pathName: string,
+  params: Record<string, string>,
+): Promise<void> {
+  const hash = `${pathName}?${new URLSearchParams(params).toString()}`;
   if (devServerUrl) {
     await win.loadURL(`${devServerUrl}#${hash}`);
   } else {
