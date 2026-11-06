@@ -462,9 +462,13 @@ export function TransactionModal({
   const serviceFee = costAmount + vatAmount;
   const costValue = (key: ExpenseCostKey) => parseAmount(expense.costs[key]);
   const truckFee = costValue('lift') + costValue('lower') + costValue('far') + costValue('bot');
-  const remaining =
-    serviceFee - (truckFee + costValue('customs') + costValue('discount') + costValue('other'));
-  const computedExpenseAmount = Math.max(0, Math.round(remaining));
+  const totalExpense =
+    serviceFee +
+    truckFee +
+    costValue('customs') +
+    costValue('discount') +
+    costValue('other');
+  const computedExpenseAmount = Math.max(0, Math.round(totalExpense));
   const savedExpenseAmount = transaction?.kind === 'expense' ? transaction.amount : undefined;
   const expenseAmount =
     expense.amountDirty || savedExpenseAmount === undefined ? computedExpenseAmount : savedExpenseAmount;
@@ -472,13 +476,6 @@ export function TransactionModal({
     income.currency === 'VND' ? income.amount : Math.round(income.amount * income.exchangeRate);
   const serviceRevenue = parseAmount(decl.serviceRevenueText);
   const totalIncome = serviceRevenue + truckFee;
-  const totalExpense =
-    costAmount +
-    vatAmount +
-    truckFee +
-    costValue('customs') +
-    costValue('other') -
-    costValue('discount');
   const profit = totalIncome - totalExpense;
   const showRevenueSummary = !transaction || transaction.kind === 'expense';
 
@@ -661,7 +658,7 @@ export function TransactionModal({
         return;
       }
       if ((expense.amountDirty || transaction?.kind !== 'expense') && computedExpenseAmount <= 0) {
-        setError('Còn lại phải lớn hơn 0. Kiểm tra lại tiền cost, VAT và các khoản chi phí.');
+        setError('Tổng chi phí phải lớn hơn 0. Kiểm tra lại tiền cost, VAT và các khoản chi phí.');
         return;
       }
       if (expense.debt.track && !expense.debt.dueDate) {
@@ -1323,8 +1320,10 @@ export function TransactionModal({
                       <strong>{formatVnd(costValue('other'))}</strong>
                     </div>
                     <div className="expense-calc-total">
-                      <span>Còn lại</span>
-                      <strong className={remaining <= 0 ? 'expense' : ''}>{formatVnd(remaining)}</strong>
+                      <span>Tổng chi phí</span>
+                      <strong className={computedExpenseAmount <= 0 ? 'expense' : ''}>
+                        {formatVnd(computedExpenseAmount)}
+                      </strong>
                     </div>
                     <div className="expense-calc-row">
                       <span>Số tiền sẽ lưu</span>
@@ -1343,8 +1342,8 @@ export function TransactionModal({
                         </button>
                       </div>
                     ) : null}
-                    {remaining <= 0 ? (
-                      <p className="expense-warning">Còn lại phải lớn hơn 0 để lưu giao dịch.</p>
+                    {computedExpenseAmount <= 0 ? (
+                      <p className="expense-warning">Tổng chi phí phải lớn hơn 0 để lưu giao dịch.</p>
                     ) : null}
                   </div>
                 </div>
@@ -1704,8 +1703,8 @@ export function TransactionModal({
                 </div>
               </div>
               <p className="hint no-pad">
-                Lợi nhuận = Tổng thu nhập − Tổng chi phí. Tổng chi phí = tiền cost + VAT + tiền xe +
-                hải quan + khác − chiết khấu.
+                Lợi nhuận = Tổng thu nhập − Tổng chi phí. Tổng chi phí = phí dịch vụ (cost + VAT) +
+                tiền xe + phí hải quan + chiết khấu + khác.
               </p>
               <p className="hint no-pad">
                 Giao dịch chi phí sẽ lưu vào sổ: {formatVnd(expenseAmount)}.

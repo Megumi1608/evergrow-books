@@ -80,6 +80,7 @@ assert(
   (await page.locator('.expense-calc-total').textContent()).includes('20.000.000'),
   'Tờ khai hiển thị tổng thu nhập',
 );
+
 await page.waitForTimeout(300);
 await shot('04-transaction-declaration.png');
 
@@ -89,11 +90,18 @@ await page.locator('.modal-head p').filter({ hasText: 'Bước 2/3' }).waitFor()
 await page.getByLabel('Tiền cost (container)').fill('10000000');
 await page.getByLabel('VAT của tiền cost').fill('800000');
 await page.getByLabel('Phí nâng').fill('1000000');
+await page.getByLabel('Phí hải quan').fill('400000');
+await page.getByLabel('Chiết khấu').fill('300000');
+await page.getByLabel('Khác').fill('200000');
 await page.locator('textarea').fill('Chi phí nhập tay khi kiểm tra giao diện');
 await page.waitForTimeout(300);
 assert(
   (await page.locator('.expense-calc-row').first().textContent()).includes('10.800.000'),
   'Tiền cost + VAT được cộng đúng',
+);
+assert(
+  !(await page.locator('.expense-calc').first().textContent()).includes('Còn lại'),
+  'Không còn dòng Còn lại trong mục chi phí',
 );
 await shot('04b-transaction-expense.png');
 
@@ -102,9 +110,13 @@ await page.locator('.modal-head p').filter({ hasText: 'Bước 3/3' }).waitFor()
 await page.waitForTimeout(300);
 const profitSummary = await page.locator('.expense-calc').textContent();
 assert(profitSummary.includes('21.000.000'), 'Tổng thu nhập = phí thu khách + tiền xe');
-assert(profitSummary.includes('11.800.000'), 'Tổng chi phí đúng');
+assert(profitSummary.includes('12.700.000'), 'Tổng chi phí cộng đủ các khoản');
 assert(
-  (await page.locator('.expense-calc-total').textContent()).includes('9.200.000'),
+  (await page.locator('.wizard-page').textContent()).includes('12.700.000'),
+  'Chi phí lưu sổ bằng tổng các khoản',
+);
+assert(
+  (await page.locator('.expense-calc-total').textContent()).includes('8.300.000'),
   'Lợi nhuận = thu nhập − chi phí',
 );
 await shot('04c-transaction-profit.png');
