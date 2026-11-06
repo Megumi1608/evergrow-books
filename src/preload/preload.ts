@@ -17,6 +17,10 @@ const api: EvergrowApi = {
     update: (id, input) => ipcRenderer.invoke('cat:update', id, input),
     remove: (id) => ipcRenderer.invoke('cat:delete', id),
   },
+  lookups: {
+    list: (kind) => ipcRenderer.invoke('lookup:list', kind),
+    add: (kind, value) => ipcRenderer.invoke('lookup:add', kind, value),
+  },
   settings: {
     get: () => ipcRenderer.invoke('settings:get'),
     save: (input) => ipcRenderer.invoke('settings:save', input),

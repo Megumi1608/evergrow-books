@@ -341,7 +341,16 @@ export function Dropdown<T extends string | number>({
 
   useEffect(() => {
     if (!open) return;
-    optionRefs.current[active]?.scrollIntoView({ block: 'nearest' });
+    const menu = menuRef.current;
+    const option = optionRefs.current[active];
+    if (!menu || !option) return;
+    const top = option.offsetTop;
+    const bottom = top + option.offsetHeight;
+    if (top < menu.scrollTop) {
+      menu.scrollTop = Math.max(0, top - 6);
+    } else if (bottom > menu.scrollTop + menu.clientHeight) {
+      menu.scrollTop = bottom - menu.clientHeight + 6;
+    }
   }, [active, open]);
 
   const renderOption = (option: DropdownOption<T>, index: number) => (
@@ -417,6 +426,120 @@ export function Dropdown<T extends string | number>({
             document.body,
           )
         : null}
+    </span>
+  );
+}
+
+export function ComboBox({
+  value,
+  onChange,
+  options,
+  placeholder,
+  ariaLabel,
+  disabled = false,
+  className = '',
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  options: string[];
+  placeholder?: string;
+  ariaLabel?: string;
+  disabled?: boolean;
+  className?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [highlight, setHighlight] = useState(0);
+  const rootRef = useRef<HTMLSpanElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const query = value.trim().toLowerCase();
+  const filtered = query ? options.filter((option) => option.toLowerCase().includes(query)) : options;
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener('pointerdown', onPointerDown, true);
+    return () => document.removeEventListener('pointerdown', onPointerDown, true);
+  }, [open]);
+
+  const choose = (option: string) => {
+    onChange(option);
+    setOpen(false);
+    inputRef.current?.focus();
+  };
+
+  return (
+    <span className={`combo ${className}`} ref={rootRef}>
+      <input
+        ref={inputRef}
+        className="input combo-input"
+        value={value}
+        placeholder={placeholder}
+        aria-label={ariaLabel}
+        disabled={disabled}
+        autoComplete="off"
+        onChange={(event) => {
+          onChange(event.target.value);
+          setOpen(true);
+          setHighlight(0);
+        }}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setOpen(false)}
+        onKeyDown={(event) => {
+          if (!open) return;
+          if (event.key === 'Escape') {
+            event.preventDefault();
+            setOpen(false);
+          } else if (event.key === 'ArrowDown') {
+            event.preventDefault();
+            setHighlight((index) => Math.min(index + 1, filtered.length - 1));
+          } else if (event.key === 'ArrowUp') {
+            event.preventDefault();
+            setHighlight((index) => Math.max(index - 1, 0));
+          } else if (event.key === 'Enter' && filtered[highlight]) {
+            event.preventDefault();
+            choose(filtered[highlight]);
+          }
+        }}
+      />
+      <button
+        type="button"
+        className="combo-toggle"
+        tabIndex={-1}
+        aria-label="Mở danh sách"
+        disabled={disabled}
+        onMouseDown={(event) => event.preventDefault()}
+        onClick={() => {
+          if (disabled) return;
+          setOpen((value) => !value);
+          inputRef.current?.focus();
+        }}
+      >
+        <ChevronDown size={14} />
+      </button>
+      {open && filtered.length > 0 ? (
+        <div className="combo-menu" role="listbox" aria-label={ariaLabel}>
+          {filtered.map((option, index) => (
+            <button
+              key={option}
+              type="button"
+              role="option"
+              aria-selected={option === value}
+              className={`combo-option${index === highlight ? ' active' : ''}${
+                option === value ? ' selected' : ''
+              }`}
+              onMouseDown={(event) => {
+                event.preventDefault();
+                choose(option);
+              }}
+              onMouseEnter={() => setHighlight(index)}
+            >
+              {option}
+            </button>
+          ))}
+        </div>
+      ) : null}
     </span>
   );
 }

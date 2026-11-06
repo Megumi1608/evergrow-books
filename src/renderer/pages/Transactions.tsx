@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Download,
@@ -61,9 +62,11 @@ export function TransactionsPage() {
   const [deleteTarget, setDeleteTarget] = useState<Transaction | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [exporting, setExporting] = useState<'csv' | 'xlsx' | null>(null);
+  const [exportOpen, setExportOpen] = useState(false);
+  const exportRef = useRef<HTMLDivElement>(null);
   const [importPreview, setImportPreview] = useState<ImportPreview | null>(null);
   const [importing, setImporting] = useState(false);
-  const [showDetails, setShowDetails] = useState(true);
+  const [showDetails, setShowDetails] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -81,6 +84,22 @@ export function TransactionsPage() {
   useEffect(() => {
     setPage(0);
   }, [debouncedQuery]);
+
+  useEffect(() => {
+    if (!exportOpen) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (!exportRef.current?.contains(event.target as Node)) setExportOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setExportOpen(false);
+    };
+    document.addEventListener('pointerdown', onPointerDown, true);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown, true);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [exportOpen]);
 
   const filter = useMemo(
     () => ({
@@ -210,24 +229,48 @@ export function TransactionsPage() {
               {showDetails ? <EyeOff size={15} /> : <Eye size={15} />}
               {showDetails ? 'Ẩn chi tiết' : 'Hiện chi tiết'}
             </button>
-            <button
-              type="button"
-              className="btn btn-outline btn-sm"
-              onClick={() => exportFile('csv')}
-              disabled={exporting !== null}
-            >
-              {exporting === 'csv' ? <LoaderCircle size={15} className="spin" /> : <Download size={15} />}
-              CSV
-            </button>
-            <button
-              type="button"
-              className="btn btn-outline btn-sm"
-              onClick={() => exportFile('xlsx')}
-              disabled={exporting !== null}
-            >
-              {exporting === 'xlsx' ? <LoaderCircle size={15} className="spin" /> : <Download size={15} />}
-              Excel
-            </button>
+            <div className="export-menu" ref={exportRef}>
+              <button
+                type="button"
+                className="btn btn-outline btn-sm"
+                onClick={() => setExportOpen((value) => !value)}
+                disabled={exporting !== null}
+                aria-haspopup="menu"
+                aria-expanded={exportOpen}
+              >
+                {exporting ? <LoaderCircle size={15} className="spin" /> : <Download size={15} />}
+                Xuất
+                <ChevronDown size={14} />
+              </button>
+              {exportOpen ? (
+                <div className="export-menu-pop" role="menu">
+                  <button
+                    type="button"
+                    className="export-menu-item"
+                    role="menuitem"
+                    disabled={exporting !== null}
+                    onClick={() => {
+                      setExportOpen(false);
+                      void exportFile('csv');
+                    }}
+                  >
+                    CSV (.csv)
+                  </button>
+                  <button
+                    type="button"
+                    className="export-menu-item"
+                    role="menuitem"
+                    disabled={exporting !== null}
+                    onClick={() => {
+                      setExportOpen(false);
+                      void exportFile('xlsx');
+                    }}
+                  >
+                    Excel (.xlsx)
+                  </button>
+                </div>
+              ) : null}
+            </div>
             <button type="button" className="btn btn-outline" onClick={startImport} disabled={importing}>
               {importing ? <LoaderCircle size={15} className="spin" /> : <Upload size={15} />}
               Nhập Excel
@@ -516,6 +559,7 @@ function transactionInput(transaction: Transaction, details: Record<string, numb
     containerNo: transaction.containerNo,
     containerSize: transaction.containerSize,
     carrier: transaction.carrier,
+    warehouseAddress: transaction.warehouseAddress,
     details,
     dueDate: transaction.dueDate,
     paidAmount: transaction.paidAmount,
@@ -547,6 +591,7 @@ function TransactionInline({
   const meta: { label: string; value: string; tone?: 'expense' }[] = [];
   if (transaction.port) meta.push({ label: 'Cửa khẩu', value: transaction.port });
   if (transaction.carrier) meta.push({ label: 'Vận chuyển', value: transaction.carrier });
+  if (transaction.warehouseAddress) meta.push({ label: 'Kho', value: transaction.warehouseAddress });
   if (transaction.currency !== 'VND') {
     meta.push({
       label: 'Nguyên tệ',

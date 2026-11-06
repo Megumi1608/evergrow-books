@@ -1,5 +1,6 @@
 import {
   CURRENCIES,
+  LOOKUP_KINDS,
   METHODS,
   type AiChatContext,
   type AiConfigInput,
@@ -8,6 +9,7 @@ import {
   type CompanySettings,
   type Currency,
   type ImportCommitOptions,
+  type LookupKind,
   type Method,
   type MissingDatePolicy,
   type TxFilter,
@@ -163,6 +165,7 @@ export function validateTxInput(value: unknown): TxInput {
     containerNo: text(input.containerNo, 'Số container', 80),
     containerSize: text(input.containerSize, 'Kích thước container', 80),
     carrier: text(input.carrier, 'Đơn vị vận chuyển', 120),
+    warehouseAddress: text(input.warehouseAddress, 'Địa chỉ kho', 200),
     details: details(input.details),
     dueDate,
     paidAmount,
@@ -272,6 +275,19 @@ export function validatePaymentAmount(value: unknown): number {
     fail('Số tiền thanh toán phải là số nguyên dương.');
   }
   return value;
+}
+
+export function validateLookupKind(value: unknown): LookupKind {
+  if (typeof value !== 'string' || !LOOKUP_KINDS.includes(value as LookupKind)) {
+    fail('Danh sách tra cứu không hợp lệ.');
+  }
+  return value as LookupKind;
+}
+
+export function validateLookupValue(value: unknown): string {
+  const trimmed = text(value, 'Giá trị', 120);
+  if (!trimmed) fail('Giá trị không được để trống.');
+  return trimmed;
 }
 
 export function validateAiSessionId(value: unknown): string {

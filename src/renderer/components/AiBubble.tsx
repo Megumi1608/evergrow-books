@@ -212,6 +212,18 @@ export function AiBubble() {
   }, [open, refreshSessions]);
 
   useEffect(() => {
+    const reload = () => {
+      void api.ai
+        .config()
+        .then(setConfig)
+        .catch(() => undefined);
+      void refreshSessions();
+    };
+    window.addEventListener('evergrow:ai-config', reload);
+    return () => window.removeEventListener('evergrow:ai-config', reload);
+  }, [refreshSessions]);
+
+  useEffect(() => {
     if (!open || startFresh || sessionId || sessions.length === 0) return;
     void refreshMessages(sessions[0].id);
   }, [open, startFresh, sessionId, sessions, refreshMessages]);
@@ -440,10 +452,9 @@ export function AiBubble() {
     return () => window.removeEventListener('resize', onResize);
   }, []);
 
-  if (!config || !config.enabled) return null;
+  if (!config || !config.enabled || !config.hasKey) return null;
 
-  const configured = config.hasKey;
-  const showWelcome = messages.length === 0 && !streaming && configured;
+  const showWelcome = messages.length === 0 && !streaming;
 
   return (
     <>
@@ -526,20 +537,7 @@ export function AiBubble() {
           </header>
 
           <div className="ai-panel-body" ref={listRef}>
-            {!configured ? (
-              <div className="ai-setup">
-                <span className="ai-setup-icon">
-                  <Sparkles size={18} />
-                </span>
-                <strong>Chưa cấu hình trợ lý</strong>
-                <p>Thêm API key và chọn model để bắt đầu trò chuyện và chỉnh sửa sổ sách.</p>
-                <a className="btn btn-primary btn-sm" href="#/assistant" onClick={() => setOpen(false)}>
-                  Mở cài đặt trợ lý
-                </a>
-              </div>
-            ) : null}
-
-            {configured && showWelcome ? (
+            {showWelcome ? (
               <div className="ai-welcome">
                 <p>Chào bạn, mình có thể đọc sổ và chuẩn bị thay đổi cho bạn duyệt.</p>
                 <div className="ai-suggestions">
@@ -630,8 +628,8 @@ export function AiBubble() {
               className="ai-input"
               rows={1}
               value={input}
-              placeholder={configured ? 'Hỏi trợ lý…' : 'Cấu hình API key để bắt đầu'}
-              disabled={!configured || streaming}
+              placeholder="Hỏi trợ lý…"
+              disabled={streaming}
               onChange={(event) => setInput(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key === 'Enter' && !event.shiftKey) {
@@ -648,7 +646,7 @@ export function AiBubble() {
               <button
                 type="submit"
                 className="icon-btn sm ai-send"
-                disabled={!configured || !input.trim()}
+                disabled={!input.trim()}
                 title="Gửi"
                 aria-label="Gửi"
               >

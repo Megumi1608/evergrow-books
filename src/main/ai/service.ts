@@ -454,6 +454,7 @@ export class AiService {
         containerNo: current.containerNo,
         containerSize: current.containerSize,
         carrier: current.carrier,
+        warehouseAddress: current.warehouseAddress,
         details: current.details,
         dueDate: current.dueDate,
         paidAmount: current.paidAmount,
@@ -575,6 +576,7 @@ function buildCreateDiff(input: TxInput, categoryName: string): AiChangeDraft['d
     diffRow('Hình thức', '—', methodLabel(input.method)),
     diffRow('Số tờ khai', '—', input.reference),
     diffRow('Container', '—', [input.containerNo, input.containerSize].filter(Boolean).join(' · ')),
+    diffRow('Địa chỉ kho', '—', input.warehouseAddress),
     diffRow('Chi tiết phí', '—', feeText(input.details)),
     diffRow('Ghi chú', '—', input.note),
     diffRow('Hạn thanh toán', '—', input.dueDate ? formatDate(input.dueDate) : ''),
@@ -604,6 +606,7 @@ function buildUpdateDiff(
     diffRow('Container', current.containerNo, input.containerNo),
     diffRow('Kích thước', current.containerSize, input.containerSize),
     diffRow('Vận chuyển', current.carrier, input.carrier),
+    diffRow('Địa chỉ kho', current.warehouseAddress, input.warehouseAddress),
     diffRow('Chi tiết phí', feeText(current.details), feeText(input.details)),
     diffRow('Ghi chú', current.note, input.note),
     diffRow(

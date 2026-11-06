@@ -29,6 +29,7 @@ import type {
   ImportBatch,
   ImportResult,
   ImportUndoResult,
+  LookupKind,
   Method,
   MonthPoint,
   ReportData,
@@ -92,6 +93,7 @@ interface RawTxRow {
   containerNo: string;
   containerSize: string;
   carrier: string;
+  warehouseAddress: string;
   detailsJson: string;
   dueDate: string;
   paidAmount: number;
@@ -134,7 +136,7 @@ const TX_SELECT = `
          t.party, t.note, t.method, t.reference, t.port,
          t.goods_name AS goodsName, t.goods_type AS goodsType,
          t.container_no AS containerNo, t.container_size AS containerSize,
-         t.carrier, t.details_json AS detailsJson,
+         t.carrier, t.warehouse_address AS warehouseAddress, t.details_json AS detailsJson,
          t.due_date AS dueDate, t.paid_amount AS paidAmount, t.currency,
          t.original_amount AS originalAmount, t.exchange_rate AS exchangeRate,
          t.import_batch_id AS importBatchId,
@@ -263,6 +265,7 @@ export class Store {
         container_no TEXT NOT NULL DEFAULT '',
         container_size TEXT NOT NULL DEFAULT '',
         carrier TEXT NOT NULL DEFAULT '',
+        warehouse_address TEXT NOT NULL DEFAULT '',
         details_json TEXT NOT NULL DEFAULT '{}',
         source_key TEXT,
         due_date TEXT NOT NULL DEFAULT '',
@@ -314,6 +317,13 @@ export class Store {
       CREATE TABLE IF NOT EXISTS app_settings (
         key TEXT PRIMARY KEY,
         value TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS lookup_values (
+        kind TEXT NOT NULL,
+        value TEXT NOT NULL COLLATE NOCASE,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE (kind, value)
       );
 
       CREATE TABLE IF NOT EXISTS ai_sessions (
@@ -373,6 +383,17 @@ export class Store {
       const insert = db.prepare('INSERT INTO categories (name, kind, color) VALUES (?, ?, ?)');
       for (const category of SEED_CATEGORIES) insert.run(category.name, category.kind, category.color);
     }
+    const insertLookup = db.prepare('INSERT OR IGNORE INTO lookup_values (kind, value) VALUES (?, ?)');
+    const lookupSeeds: [LookupKind, string][] = [
+      ['customers', 'NAM VIỆT'],
+      ['customers', 'HAFLIFE'],
+      ['customers', 'ITAGRO'],
+      ['customers', 'MBA'],
+      ['carriers', 'THANH HÒA'],
+      ['goods_types', 'PHÂN BÓN'],
+      ['goods_types', 'THUỐC TRỪ SÂU'],
+    ];
+    for (const [kind, value] of lookupSeeds) insertLookup.run(kind, value);
     return db;
   }
 
@@ -390,6 +411,7 @@ export class Store {
       ['container_no', "container_no TEXT NOT NULL DEFAULT ''"],
       ['container_size', "container_size TEXT NOT NULL DEFAULT ''"],
       ['carrier', "carrier TEXT NOT NULL DEFAULT ''"],
+      ['warehouse_address', "warehouse_address TEXT NOT NULL DEFAULT ''"],
       ['details_json', "details_json TEXT NOT NULL DEFAULT '{}'"],
       ['source_key', 'source_key TEXT'],
       ['due_date', "due_date TEXT NOT NULL DEFAULT ''"],
@@ -414,7 +436,7 @@ export class Store {
       CREATE UNIQUE INDEX IF NOT EXISTS idx_tx_source_key
         ON transactions(source_key) WHERE source_key IS NOT NULL;
       CREATE INDEX IF NOT EXISTS idx_tx_import_batch ON transactions(import_batch_id);
-      PRAGMA user_version = 5;
+      PRAGMA user_version = 6;
     `);
   }
 
@@ -450,6 +472,24 @@ export class Store {
          FROM categories c WHERE c.id = ?`,
       )
       .get(id) as Category | undefined;
+  }
+
+  listLookups(kind: LookupKind): string[] {
+    return (
+      this.db
+        .prepare('SELECT value FROM lookup_values WHERE kind = ? ORDER BY value COLLATE NOCASE')
+        .all(kind) as unknown as { value: string }[]
+    ).map((row) => row.value);
+  }
+
+  addLookup(kind: LookupKind, value: string): string[] {
+    const trimmed = value.replace(/\s+/g, ' ').trim().slice(0, 120);
+    if (trimmed) {
+      this.db
+        .prepare('INSERT OR IGNORE INTO lookup_values (kind, value) VALUES (?, ?)')
+        .run(kind, trimmed);
+    }
+    return this.listLookups(kind);
   }
 
   listCategories(): Category[] {
@@ -580,9 +620,10 @@ export class Store {
       .prepare(
         `INSERT INTO transactions
            (kind, amount, occurred_on, category_id, party, note, method,
-            reference, port, goods_name, goods_type, container_no, container_size, carrier, details_json,
+            reference, port, goods_name, goods_type, container_no, container_size, carrier,
+            warehouse_address, details_json,
             due_date, paid_amount, currency, original_amount, exchange_rate)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         input.kind,
@@ -599,6 +640,7 @@ export class Store {
         input.containerNo,
         input.containerSize,
         input.carrier,
+        input.warehouseAddress,
         JSON.stringify(input.details),
         input.dueDate,
         input.paidAmount,
@@ -618,7 +660,7 @@ export class Store {
         `UPDATE transactions
          SET kind = ?, amount = ?, occurred_on = ?, category_id = ?, party = ?, note = ?, method = ?,
              reference = ?, port = ?, goods_name = ?, goods_type = ?, container_no = ?,
-             container_size = ?, carrier = ?, details_json = ?,
+             container_size = ?, carrier = ?, warehouse_address = ?, details_json = ?,
              due_date = ?, paid_amount = ?, currency = ?, original_amount = ?, exchange_rate = ?,
              updated_at = datetime('now')
          WHERE id = ?`,
@@ -638,6 +680,7 @@ export class Store {
         input.containerNo,
         input.containerSize,
         input.carrier,
+        input.warehouseAddress,
         JSON.stringify(input.details),
         input.dueDate,
         input.paidAmount,
@@ -1754,7 +1797,7 @@ export class Store {
         `UPDATE transactions SET
            kind = ?, amount = ?, occurred_on = ?, category_id = ?, party = ?, note = ?, method = ?,
            reference = ?, port = ?, goods_name = ?, goods_type = ?, container_no = ?,
-           container_size = ?, carrier = ?, details_json = ?, source_key = ?, due_date = ?,
+           container_size = ?, carrier = ?, warehouse_address = ?, details_json = ?, source_key = ?, due_date = ?,
            paid_amount = ?, currency = ?, original_amount = ?, exchange_rate = ?,
            import_batch_id = ?, created_at = ?, updated_at = datetime('now')
          WHERE id = ?`,
@@ -1774,6 +1817,7 @@ export class Store {
         row.container_no,
         row.container_size,
         row.carrier,
+        row.warehouse_address ?? '',
         row.details_json,
         row.source_key ?? null,
         row.due_date,
@@ -1806,6 +1850,7 @@ export class Store {
       'container_no',
       'container_size',
       'carrier',
+      'warehouse_address',
       'details_json',
       'source_key',
       'due_date',

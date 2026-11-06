@@ -519,6 +519,8 @@ input:focus-visible {
 }
 
 .page-head {
+  position: relative;
+  z-index: 20;
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
@@ -546,6 +548,52 @@ input:focus-visible {
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.export-menu {
+  position: relative;
+  display: inline-flex;
+}
+
+.export-menu .btn svg {
+  flex: none;
+}
+
+.export-menu-pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 50;
+  min-width: 170px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.14);
+  animation: dropdownIn 0.14s var(--ease-out) both;
+}
+
+.export-menu-item {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 7px 9px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ink-2);
+  font-size: 11.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.export-menu-item:hover:not(:disabled) {
+  background: var(--soft);
+}
+
+.export-menu-item:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .month-nav {
@@ -2705,6 +2753,82 @@ input[type='number']::-webkit-inner-spin-button {
   }
 }
 
+.combo {
+  position: relative;
+  display: block;
+  width: 100%;
+}
+
+.combo-input {
+  padding-right: 30px;
+}
+
+.combo-toggle {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transform: translateY(-50%);
+}
+
+.combo-toggle:hover:not(:disabled) {
+  background: var(--soft);
+  color: var(--ink);
+}
+
+.combo-toggle:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.combo-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  left: 0;
+  z-index: 12;
+  max-height: 180px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.14);
+  overflow-y: auto;
+  animation: dropdownIn 0.14s var(--ease-out) both;
+}
+
+.combo-option {
+  width: 100%;
+  padding: 7px 9px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink-2);
+  font-size: 11.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.combo-option.active,
+.combo-option:hover {
+  background: var(--soft);
+}
+
+.combo-option.selected {
+  color: var(--ink);
+  font-weight: 600;
+}
+
 /* ---------- Modal ---------- */
 
 .modal-open {
@@ -3380,6 +3504,114 @@ input[type='number']::-webkit-inner-spin-button {
   border: 1px solid var(--line);
   border-radius: 10px;
   background: var(--soft);
+}
+
+.form-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.form-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.form-section-head .field-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.form-section-hint {
+  font-size: 9px;
+  color: var(--muted);
+  text-align: right;
+}
+
+.readonly-value {
+  display: flex;
+  align-items: center;
+  height: 38px;
+  padding: 0 11px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 9px;
+  background: var(--soft);
+  color: var(--ink);
+  font-size: 12.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.expense-calc {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--soft);
+}
+
+.expense-calc-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 10.5px;
+  color: var(--muted);
+}
+
+.expense-calc-row strong {
+  color: var(--ink);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.expense-calc-total {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 9px;
+  border-top: 1px dashed var(--line-strong);
+  font-size: 11px;
+  color: var(--ink-2);
+}
+
+.expense-calc-total strong {
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.expense-calc-total strong.expense {
+  color: var(--expense);
+}
+
+.expense-recalc {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 8px;
+  background: var(--surface);
+  font-size: 9.5px;
+  color: var(--muted);
+}
+
+.expense-warning {
+  margin: 0;
+  font-size: 9.5px;
+  color: var(--expense);
 }
 
 .detail-list {

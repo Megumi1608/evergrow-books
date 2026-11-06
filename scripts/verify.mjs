@@ -66,6 +66,7 @@ await shot('03-transactions.png');
 // Add transaction modal
 await page.getByRole('button', { name: 'Thêm giao dịch' }).first().click();
 await page.waitForSelector('.modal');
+await page.getByRole('button', { name: 'Thu nhập' }).click();
 await page.locator('.amount-input').fill('12500000');
 await page.locator('input[placeholder="Tên khách hàng, nhà cung cấp…"]').fill('Công ty Kiểm Thử');
 await page.locator('textarea').fill('Giao dịch tạo tự động khi kiểm tra giao diện');

@@ -19,6 +19,8 @@ import {
   validateFilter,
   validateId,
   validateImportOptions,
+  validateLookupKind,
+  validateLookupValue,
   validateMonth,
   validatePaymentAmount,
   validateRange,
@@ -157,6 +159,10 @@ export function registerIpc(deps: IpcDeps): void {
     store.updateCategory(validateId(id, 'Danh mục'), validateCategoryInput(input)),
   );
   handle('cat:delete', (id: unknown) => store.removeCategory(validateId(id, 'Danh mục')));
+  handle('lookup:list', (kind: unknown) => store.listLookups(validateLookupKind(kind)));
+  handle('lookup:add', (kind: unknown, value: unknown) =>
+    store.addLookup(validateLookupKind(kind), validateLookupValue(value)),
+  );
 
   handle('settings:get', () => store.getSettings());
   handle('settings:save', (input: unknown) => store.saveSettings(validateCompanySettings(input)));

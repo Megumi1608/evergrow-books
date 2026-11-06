@@ -2,6 +2,9 @@ import type { ThemeSettings } from './theme';
 
 export type TxKind = 'income' | 'expense';
 
+export const LOOKUP_KINDS = ['customers', 'carriers', 'goods_types'] as const;
+export type LookupKind = (typeof LOOKUP_KINDS)[number];
+
 export const METHODS = ['cash', 'bank', 'card', 'ewallet', 'other'] as const;
 export type Method = (typeof METHODS)[number];
 
@@ -62,6 +65,7 @@ export interface Transaction {
   containerNo: string;
   containerSize: string;
   carrier: string;
+  warehouseAddress: string;
   details: Record<string, number>;
   dueDate: string;
   paidAmount: number;
@@ -88,6 +92,7 @@ export interface TxInput {
   containerNo: string;
   containerSize: string;
   carrier: string;
+  warehouseAddress: string;
   details: Record<string, number>;
   dueDate: string;
   paidAmount: number;
@@ -477,6 +482,10 @@ export interface EvergrowApi {
     create(input: CategoryInput): Promise<Category>;
     update(id: number, input: CategoryInput): Promise<Category>;
     remove(id: number): Promise<void>;
+  };
+  lookups: {
+    list(kind: LookupKind): Promise<string[]>;
+    add(kind: LookupKind, value: string): Promise<string[]>;
   };
   settings: {
     get(): Promise<CompanySettings>;

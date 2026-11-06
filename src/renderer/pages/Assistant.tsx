@@ -167,6 +167,7 @@ export function AssistantPage() {
         temperature: String(saved.temperature),
         enabled: saved.enabled,
       });
+      window.dispatchEvent(new Event('evergrow:ai-config'));
       toast('Đã lưu cấu hình trợ lý.');
     } catch (error) {
       toast(getErrorMessage(error), 'error');
@@ -181,6 +182,7 @@ export function AssistantPage() {
       setConfig(saved);
       setApiKey('');
       setTestResult(null);
+      window.dispatchEvent(new Event('evergrow:ai-config'));
       toast('Đã xoá API key.');
     } catch (error) {
       toast(getErrorMessage(error), 'error');
