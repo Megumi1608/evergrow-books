@@ -63,16 +63,42 @@ await page.waitForSelector('.tx-table tbody tr', { timeout: 10000 });
 await page.waitForTimeout(500);
 await shot('03-transactions.png');
 
-// Add transaction modal
+// Add transaction modal — 3-step wizard
 await page.getByRole('button', { name: 'Thêm giao dịch' }).first().click();
-await page.waitForSelector('.modal');
-await page.getByRole('button', { name: 'Thu nhập' }).click();
-await page.locator('.amount-input').fill('12500000');
-await page.locator('input[placeholder="Tên khách hàng, nhà cung cấp…"]').fill('Công ty Kiểm Thử');
-await page.locator('textarea').fill('Giao dịch tạo tự động khi kiểm tra giao diện');
+await page.waitForSelector('.wizard-steps');
+await page.locator('input[placeholder="Chọn hoặc nhập khách hàng mới"]').fill('Công ty Kiểm Thử');
+await page.getByLabel('Số tờ khai').fill('108674195011');
+
+const containerCount = page.getByLabel('Số lượng cont');
+await containerCount.focus();
+await containerCount.fill('5');
+await containerCount.fill('');
+await containerCount.fill('2');
+assert((await containerCount.inputValue()) === '2', 'Số container cho phép xoá và nhập lại');
 await page.waitForTimeout(300);
-await shot('04-transaction-modal.png');
-await page.getByRole('button', { name: 'Thêm giao dịch' }).last().click();
+await shot('04-transaction-declaration.png');
+
+const next = page.locator('.modal-foot').getByRole('button', { name: 'Tiếp tục' });
+await next.click();
+await page.locator('.modal-head p').filter({ hasText: 'Bước 2/3' }).waitFor();
+await page.getByLabel('Tiền cost (container)').fill('10000000');
+await page.getByLabel('VAT của tiền cost').fill('800000');
+await page.locator('textarea').fill('Chi phí nhập tay khi kiểm tra giao diện');
+await page.waitForTimeout(300);
+assert(
+  (await page.locator('.expense-calc-row').first().textContent()).includes('10.800.000'),
+  'Tiền cost + VAT được cộng đúng',
+);
+await shot('04b-transaction-expense.png');
+
+await next.click();
+await page.locator('.modal-head p').filter({ hasText: 'Bước 3/3' }).waitFor();
+await page.getByText('Ghi nhận thu nhập', { exact: true }).click();
+await page.locator('.amount-input').fill('12500000');
+await page.waitForTimeout(300);
+await shot('04c-transaction-income.png');
+
+await page.locator('.modal-foot').getByRole('button', { name: 'Thêm giao dịch' }).click();
 await page.waitForSelector('.modal', { state: 'detached', timeout: 10000 });
 await page.waitForTimeout(700);
 await shot('05-transactions-after-add.png');

@@ -3514,6 +3514,120 @@ input[type='number']::-webkit-inner-spin-button {
   border-top: 1px solid var(--line);
 }
 
+.wizard-steps {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.wizard-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--muted);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color var(--dur-fast) ease,
+    background var(--dur-fast) ease,
+    color var(--dur-fast) ease;
+}
+
+.wizard-step:hover {
+  border-color: var(--line-strong);
+}
+
+.wizard-step.active {
+  border-color: var(--ink);
+  background: var(--soft);
+  color: var(--ink);
+}
+
+.wizard-step.done {
+  color: var(--ink-2);
+}
+
+.wizard-step-num {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--soft);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.wizard-step.active .wizard-step-num {
+  background: var(--ink);
+  color: var(--surface);
+}
+
+.wizard-step.done .wizard-step-num {
+  background: var(--income-soft);
+  color: var(--income);
+}
+
+.wizard-step-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.wizard-step-text strong {
+  overflow: hidden;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.wizard-step-text small {
+  overflow: hidden;
+  font-size: 9px;
+  color: var(--muted);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.wizard-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  animation: riseIn 0.18s var(--ease-out) both;
+}
+
+.wizard-section {
+  padding-top: 0;
+  border-top: none;
+}
+
+.wizard-foot-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+@media (max-width: 720px) {
+  .wizard-step-text small {
+    display: none;
+  }
+
+  .wizard-step {
+    padding: 8px;
+  }
+}
+
 .form-section-head {
   display: flex;
   align-items: baseline;
