@@ -455,6 +455,7 @@ export class AiService {
         containerSize: current.containerSize,
         carrier: current.carrier,
         warehouseAddress: current.warehouseAddress,
+        serviceRevenue: current.serviceRevenue,
         details: current.details,
         dueDate: current.dueDate,
         paidAmount: current.paidAmount,

@@ -11,7 +11,7 @@ import type {
 } from '../../shared/types';
 import { CURRENCIES, CURRENCY_LABELS, CURRENCY_SUFFIX, METHOD_LABELS } from '../../shared/types';
 import { todayIso } from '../../shared/dates';
-import { formatNumber, formatVnd, parseAmount } from '../../shared/format';
+import { formatNumber, formatSignedVnd, formatVnd, parseAmount } from '../../shared/format';
 import { api, getErrorMessage } from '../api';
 import { feeLabel, orderedDetailEntries } from './FeeBreakdown';
 import { useToast } from './toast';
@@ -82,6 +82,7 @@ interface DeclarationDraft {
   containerCount: number;
   containerCountText: string;
   containerDirty: boolean;
+  serviceRevenueText: string;
 }
 
 interface ExpenseDraft {
@@ -119,7 +120,7 @@ interface IncomeDraft {
   debt: DebtDraft;
 }
 
-type StepKey = 'declaration' | 'expense' | 'income';
+type StepKey = 'declaration' | 'expense' | 'income' | 'profit';
 
 function normalizeDetailLabel(label: string): string {
   return label
@@ -204,6 +205,7 @@ function initialDeclaration(transaction: Transaction | null): DeclarationDraft {
     containerCount: container.count,
     containerCountText: String(container.count),
     containerDirty: !transaction,
+    serviceRevenueText: transaction?.serviceRevenue ? formatNumber(transaction.serviceRevenue) : '',
   };
 }
 
@@ -357,19 +359,23 @@ export function TransactionModal({
       label: 'Thông tin tờ khai',
       hint: 'Thông tin lô hàng',
     };
-    if (transaction) {
+    const expenseStep: { key: StepKey; label: string; hint: string } = {
+      key: 'expense',
+      label: 'Chi phí',
+      hint: 'Các khoản chi của lô',
+    };
+    const profitStep: { key: StepKey; label: string; hint: string } = {
+      key: 'profit',
+      label: 'Lợi nhuận',
+      hint: 'Thu nhập trừ chi phí',
+    };
+    if (transaction?.kind === 'income') {
       return [
         declaration,
-        transaction.kind === 'expense'
-          ? { key: 'expense', label: 'Chi phí', hint: 'Các khoản chi của lô' }
-          : { key: 'income', label: 'Thu nhập', hint: 'Doanh thu của lô' },
+        { key: 'income', label: 'Thu nhập', hint: 'Doanh thu của lô' },
       ];
     }
-    return [
-      declaration,
-      { key: 'expense', label: 'Chi phí', hint: 'Các khoản chi của lô' },
-      { key: 'income', label: 'Thu nhập', hint: 'Doanh thu của lô' },
-    ];
+    return [declaration, expenseStep, profitStep];
   }, [transaction]);
   const currentStep = steps[Math.min(stepIndex, steps.length - 1)];
   const lastStep = steps.length - 1;
@@ -464,6 +470,17 @@ export function TransactionModal({
     expense.amountDirty || savedExpenseAmount === undefined ? computedExpenseAmount : savedExpenseAmount;
   const incomeAmountVnd =
     income.currency === 'VND' ? income.amount : Math.round(income.amount * income.exchangeRate);
+  const serviceRevenue = parseAmount(decl.serviceRevenueText);
+  const totalIncome = serviceRevenue + truckFee;
+  const totalExpense =
+    costAmount +
+    vatAmount +
+    truckFee +
+    costValue('customs') +
+    costValue('other') -
+    costValue('discount');
+  const profit = totalIncome - totalExpense;
+  const showRevenueSummary = !transaction || transaction.kind === 'expense';
 
   const changeContainerChoice = (choice: ContainerChoice) => {
     setDecl((current) => ({ ...current, containerChoice: choice, containerDirty: true }));
@@ -682,6 +699,7 @@ export function TransactionModal({
         containerSize: expenseContainerSize,
         carrier: expense.carrier,
         warehouseAddress: expense.warehouseAddress,
+        serviceRevenue,
         details,
         dueDate: expense.debt.track ? expense.debt.dueDate : '',
         paidAmount: expense.debt.track
@@ -736,6 +754,7 @@ export function TransactionModal({
         containerSize: income.containerSize,
         carrier: income.carrier,
         warehouseAddress: income.warehouseAddress,
+        serviceRevenue,
         details,
         dueDate: income.debt.track ? income.debt.dueDate : '',
         paidAmount: income.debt.track
@@ -1021,6 +1040,44 @@ export function TransactionModal({
                   Dữ liệu cũ: {transaction.containerSize}. Sửa số lượng/kích thước để thay thế.
                 </p>
               ) : null}
+              {showRevenueSummary ? (
+                <>
+                  <label className="field">
+                    <span className="field-label">Phí dịch vụ container thu khách</span>
+                    <span className="amount-wrap">
+                      <input
+                        className="input"
+                        inputMode="numeric"
+                        value={decl.serviceRevenueText}
+                        placeholder="0"
+                        onChange={(event) => {
+                          const parsed = parseAmount(event.target.value);
+                          setDecl((current) => ({
+                            ...current,
+                            serviceRevenueText: parsed > 0 ? formatNumber(parsed) : '',
+                          }));
+                        }}
+                      />
+                      <span className="amount-suffix">đ</span>
+                    </span>
+                    <span className="hint no-pad">Số tiền bạn muốn thu khách cho dịch vụ container.</span>
+                  </label>
+                  <div className="expense-calc">
+                    <div className="expense-calc-row">
+                      <span>Phí dịch vụ container thu khách</span>
+                      <strong>{formatVnd(serviceRevenue)}</strong>
+                    </div>
+                    <div className="expense-calc-row">
+                      <span>Tiền xe (từ bước Chi phí)</span>
+                      <strong>{formatVnd(truckFee)}</strong>
+                    </div>
+                    <div className="expense-calc-total">
+                      <span>Tổng thu nhập</span>
+                      <strong>{formatVnd(totalIncome)}</strong>
+                    </div>
+                  </div>
+                </>
+              ) : null}
             </section>
 
             <div className="attachments-block">
@@ -1106,15 +1163,6 @@ export function TransactionModal({
 
         {currentStep.key === 'expense' ? (
           <div className="wizard-page">
-            {!transaction ? (
-              <Checkbox
-                checked={expense.enabled}
-                onChange={(enabled) => setExpense((current) => ({ ...current, enabled }))}
-                label="Ghi nhận chi phí"
-                description="Bật nếu lô hàng có phát sinh chi phí."
-              />
-            ) : null}
-
             {expense.enabled ? (
               <>
                 <div className="form-row">
@@ -1313,15 +1361,6 @@ export function TransactionModal({
 
         {currentStep.key === 'income' ? (
           <div className="wizard-page">
-            {!transaction ? (
-              <Checkbox
-                checked={income.enabled}
-                onChange={(enabled) => setIncome((current) => ({ ...current, enabled }))}
-                label="Ghi nhận thu nhập"
-                description="Bật nếu lô hàng có phát sinh doanh thu."
-              />
-            ) : null}
-
             {income.enabled ? (
               <>
                 <div className="field amount-field">
@@ -1630,6 +1669,48 @@ export function TransactionModal({
             ) : (
               <p className="hint no-pad">Không ghi nhận thu nhập cho lô này.</p>
             )}
+          </div>
+        ) : null}
+
+        {currentStep.key === 'profit' ? (
+          <div className="wizard-page">
+            <section className="form-section wizard-section">
+              <div className="form-section-head">
+                <span className="field-label">Lợi nhuận lô hàng</span>
+                <span className="form-section-hint">Tổng thu nhập − tổng chi phí</span>
+              </div>
+              <div className="expense-calc">
+                <div className="expense-calc-row">
+                  <span>Phí dịch vụ container thu khách</span>
+                  <strong>{formatVnd(serviceRevenue)}</strong>
+                </div>
+                <div className="expense-calc-row">
+                  <span>Tiền xe</span>
+                  <strong>{formatVnd(truckFee)}</strong>
+                </div>
+                <div className="expense-calc-row">
+                  <span>Tổng thu nhập</span>
+                  <strong>{formatVnd(totalIncome)}</strong>
+                </div>
+                <div className="expense-calc-row">
+                  <span>Tổng chi phí</span>
+                  <strong>{formatVnd(totalExpense)}</strong>
+                </div>
+                <div className="expense-calc-total">
+                  <span>Lợi nhuận</span>
+                  <strong className={profit >= 0 ? 'income' : 'expense'}>
+                    {formatSignedVnd(profit)}
+                  </strong>
+                </div>
+              </div>
+              <p className="hint no-pad">
+                Lợi nhuận = Tổng thu nhập − Tổng chi phí. Tổng chi phí = tiền cost + VAT + tiền xe +
+                hải quan + khác − chiết khấu.
+              </p>
+              <p className="hint no-pad">
+                Giao dịch chi phí sẽ lưu vào sổ: {formatVnd(expenseAmount)}.
+              </p>
+            </section>
           </div>
         ) : null}
 

@@ -560,6 +560,7 @@ function transactionInput(transaction: Transaction, details: Record<string, numb
     containerSize: transaction.containerSize,
     carrier: transaction.carrier,
     warehouseAddress: transaction.warehouseAddress,
+    serviceRevenue: transaction.serviceRevenue,
     details,
     dueDate: transaction.dueDate,
     paidAmount: transaction.paidAmount,

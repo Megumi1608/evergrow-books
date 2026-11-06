@@ -94,6 +94,7 @@ interface RawTxRow {
   containerSize: string;
   carrier: string;
   warehouseAddress: string;
+  serviceRevenue: number;
   detailsJson: string;
   dueDate: string;
   paidAmount: number;
@@ -121,6 +122,7 @@ export interface ImportTransactionRow {
   containerNo: string;
   containerSize: string;
   carrier: string;
+  serviceRevenue: number;
   details: Record<string, number>;
   dueDate: string;
   paidAmount: number;
@@ -136,7 +138,8 @@ const TX_SELECT = `
          t.party, t.note, t.method, t.reference, t.port,
          t.goods_name AS goodsName, t.goods_type AS goodsType,
          t.container_no AS containerNo, t.container_size AS containerSize,
-         t.carrier, t.warehouse_address AS warehouseAddress, t.details_json AS detailsJson,
+         t.carrier, t.warehouse_address AS warehouseAddress,
+         t.service_revenue AS serviceRevenue, t.details_json AS detailsJson,
          t.due_date AS dueDate, t.paid_amount AS paidAmount, t.currency,
          t.original_amount AS originalAmount, t.exchange_rate AS exchangeRate,
          t.import_batch_id AS importBatchId,
@@ -266,6 +269,7 @@ export class Store {
         container_size TEXT NOT NULL DEFAULT '',
         carrier TEXT NOT NULL DEFAULT '',
         warehouse_address TEXT NOT NULL DEFAULT '',
+        service_revenue INTEGER NOT NULL DEFAULT 0,
         details_json TEXT NOT NULL DEFAULT '{}',
         source_key TEXT,
         due_date TEXT NOT NULL DEFAULT '',
@@ -412,6 +416,7 @@ export class Store {
       ['container_size', "container_size TEXT NOT NULL DEFAULT ''"],
       ['carrier', "carrier TEXT NOT NULL DEFAULT ''"],
       ['warehouse_address', "warehouse_address TEXT NOT NULL DEFAULT ''"],
+      ['service_revenue', 'service_revenue INTEGER NOT NULL DEFAULT 0'],
       ['details_json', "details_json TEXT NOT NULL DEFAULT '{}'"],
       ['source_key', 'source_key TEXT'],
       ['due_date', "due_date TEXT NOT NULL DEFAULT ''"],
@@ -436,7 +441,7 @@ export class Store {
       CREATE UNIQUE INDEX IF NOT EXISTS idx_tx_source_key
         ON transactions(source_key) WHERE source_key IS NOT NULL;
       CREATE INDEX IF NOT EXISTS idx_tx_import_batch ON transactions(import_batch_id);
-      PRAGMA user_version = 6;
+      PRAGMA user_version = 7;
     `);
   }
 
@@ -621,9 +626,9 @@ export class Store {
         `INSERT INTO transactions
            (kind, amount, occurred_on, category_id, party, note, method,
             reference, port, goods_name, goods_type, container_no, container_size, carrier,
-            warehouse_address, details_json,
+            warehouse_address, service_revenue, details_json,
             due_date, paid_amount, currency, original_amount, exchange_rate)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         input.kind,
@@ -641,6 +646,7 @@ export class Store {
         input.containerSize,
         input.carrier,
         input.warehouseAddress,
+        input.serviceRevenue,
         JSON.stringify(input.details),
         input.dueDate,
         input.paidAmount,
@@ -660,7 +666,7 @@ export class Store {
         `UPDATE transactions
          SET kind = ?, amount = ?, occurred_on = ?, category_id = ?, party = ?, note = ?, method = ?,
              reference = ?, port = ?, goods_name = ?, goods_type = ?, container_no = ?,
-             container_size = ?, carrier = ?, warehouse_address = ?, details_json = ?,
+             container_size = ?, carrier = ?, warehouse_address = ?, service_revenue = ?, details_json = ?,
              due_date = ?, paid_amount = ?, currency = ?, original_amount = ?, exchange_rate = ?,
              updated_at = datetime('now')
          WHERE id = ?`,
@@ -681,6 +687,7 @@ export class Store {
         input.containerSize,
         input.carrier,
         input.warehouseAddress,
+        input.serviceRevenue,
         JSON.stringify(input.details),
         input.dueDate,
         input.paidAmount,
@@ -711,9 +718,10 @@ export class Store {
     const insert = this.db.prepare(
       `INSERT INTO transactions
          (kind, amount, occurred_on, category_id, party, note, method,
-          reference, port, goods_name, goods_type, container_no, container_size, carrier, details_json,
+          reference, port, goods_name, goods_type, container_no, container_size, carrier,
+          service_revenue, details_json,
           source_key, due_date, paid_amount, currency, original_amount, exchange_rate, import_batch_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
 
     let income = 0;
@@ -762,6 +770,7 @@ export class Store {
           row.containerNo,
           row.containerSize,
           row.carrier,
+          row.serviceRevenue,
           JSON.stringify(row.details),
           row.sourceKey || null,
           row.dueDate,
@@ -1797,7 +1806,7 @@ export class Store {
         `UPDATE transactions SET
            kind = ?, amount = ?, occurred_on = ?, category_id = ?, party = ?, note = ?, method = ?,
            reference = ?, port = ?, goods_name = ?, goods_type = ?, container_no = ?,
-           container_size = ?, carrier = ?, warehouse_address = ?, details_json = ?, source_key = ?, due_date = ?,
+           container_size = ?, carrier = ?, warehouse_address = ?, service_revenue = ?, details_json = ?, source_key = ?, due_date = ?,
            paid_amount = ?, currency = ?, original_amount = ?, exchange_rate = ?,
            import_batch_id = ?, created_at = ?, updated_at = datetime('now')
          WHERE id = ?`,
@@ -1818,6 +1827,7 @@ export class Store {
         row.container_size,
         row.carrier,
         row.warehouse_address ?? '',
+        row.service_revenue ?? 0,
         row.details_json,
         row.source_key ?? null,
         row.due_date,
@@ -1851,6 +1861,7 @@ export class Store {
       'container_size',
       'carrier',
       'warehouse_address',
+      'service_revenue',
       'details_json',
       'source_key',
       'due_date',
@@ -1867,7 +1878,7 @@ export class Store {
         `INSERT INTO transactions (${columns.join(', ')})
          VALUES (${columns.map(() => '?').join(', ')})`,
       )
-      .run(...columns.map((column) => row[column] ?? null));
+      .run(...columns.map((column) => row[column] ?? (column === 'service_revenue' ? 0 : null)));
   }
 
   resetAll(): void {

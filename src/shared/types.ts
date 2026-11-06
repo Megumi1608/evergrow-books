@@ -66,6 +66,7 @@ export interface Transaction {
   containerSize: string;
   carrier: string;
   warehouseAddress: string;
+  serviceRevenue: number;
   details: Record<string, number>;
   dueDate: string;
   paidAmount: number;
@@ -93,6 +94,7 @@ export interface TxInput {
   containerSize: string;
   carrier: string;
   warehouseAddress: string;
+  serviceRevenue: number;
   details: Record<string, number>;
   dueDate: string;
   paidAmount: number;

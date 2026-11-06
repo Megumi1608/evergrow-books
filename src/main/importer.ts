@@ -558,6 +558,7 @@ export function commitImport(token: string, options: ImportCommitOptions, store:
       containerNo: row.containerNo,
       containerSize: row.containerSize,
       carrier: row.carrier,
+      serviceRevenue: 0,
       details: row.details,
       dueDate: '',
       paidAmount: row.amount,

@@ -68,6 +68,7 @@ await page.getByRole('button', { name: 'Thêm giao dịch' }).first().click();
 await page.waitForSelector('.wizard-steps');
 await page.locator('input[placeholder="Chọn hoặc nhập khách hàng mới"]').fill('Công ty Kiểm Thử');
 await page.getByLabel('Số tờ khai').fill('108674195011');
+await page.getByLabel('Phí dịch vụ container thu khách').fill('20000000');
 
 const containerCount = page.getByLabel('Số lượng cont');
 await containerCount.focus();
@@ -75,6 +76,10 @@ await containerCount.fill('5');
 await containerCount.fill('');
 await containerCount.fill('2');
 assert((await containerCount.inputValue()) === '2', 'Số container cho phép xoá và nhập lại');
+assert(
+  (await page.locator('.expense-calc-total').textContent()).includes('20.000.000'),
+  'Tờ khai hiển thị tổng thu nhập',
+);
 await page.waitForTimeout(300);
 await shot('04-transaction-declaration.png');
 
@@ -83,6 +88,7 @@ await next.click();
 await page.locator('.modal-head p').filter({ hasText: 'Bước 2/3' }).waitFor();
 await page.getByLabel('Tiền cost (container)').fill('10000000');
 await page.getByLabel('VAT của tiền cost').fill('800000');
+await page.getByLabel('Phí nâng').fill('1000000');
 await page.locator('textarea').fill('Chi phí nhập tay khi kiểm tra giao diện');
 await page.waitForTimeout(300);
 assert(
@@ -93,15 +99,36 @@ await shot('04b-transaction-expense.png');
 
 await next.click();
 await page.locator('.modal-head p').filter({ hasText: 'Bước 3/3' }).waitFor();
-await page.getByText('Ghi nhận thu nhập', { exact: true }).click();
-await page.locator('.amount-input').fill('12500000');
 await page.waitForTimeout(300);
-await shot('04c-transaction-income.png');
+const profitSummary = await page.locator('.expense-calc').textContent();
+assert(profitSummary.includes('21.000.000'), 'Tổng thu nhập = phí thu khách + tiền xe');
+assert(profitSummary.includes('11.800.000'), 'Tổng chi phí đúng');
+assert(
+  (await page.locator('.expense-calc-total').textContent()).includes('9.200.000'),
+  'Lợi nhuận = thu nhập − chi phí',
+);
+await shot('04c-transaction-profit.png');
 
 await page.locator('.modal-foot').getByRole('button', { name: 'Thêm giao dịch' }).click();
 await page.waitForSelector('.modal', { state: 'detached', timeout: 10000 });
 await page.waitForTimeout(700);
 await shot('05-transactions-after-add.png');
+
+// Edit the new transaction to exercise update + service revenue persistence
+await page.locator('.tx-table tbody tr').first().click();
+await page.waitForSelector('.wizard-steps');
+assert(
+  (await page.getByLabel('Phí dịch vụ container thu khách').inputValue()).replace(/\D/g, '') ===
+    '20000000',
+  'Phí dịch vụ thu khách được lưu khi sửa',
+);
+await page.locator('.modal-foot').getByRole('button', { name: 'Tiếp tục' }).click();
+await page.locator('.modal-head p').filter({ hasText: 'Bước 2/3' }).waitFor();
+await page.locator('.modal-foot').getByRole('button', { name: 'Tiếp tục' }).click();
+await page.locator('.modal-head p').filter({ hasText: 'Bước 3/3' }).waitFor();
+await page.locator('.modal-foot').getByRole('button', { name: 'Lưu thay đổi' }).click();
+await page.waitForSelector('.modal', { state: 'detached', timeout: 10000 });
+await page.waitForTimeout(500);
 
 // Categories
 await page.locator('a.nav-item[href="#/categories"]').click();

@@ -150,6 +150,18 @@ export function validateTxInput(value: unknown): TxInput {
   if (paidAmount > amount) fail('Đã thanh toán không được vượt quá số tiền giao dịch.');
   if (!dueDate) paidAmount = amount;
 
+  let serviceRevenue = 0;
+  if (input.serviceRevenue !== undefined) {
+    if (
+      typeof input.serviceRevenue !== 'number' ||
+      !Number.isInteger(input.serviceRevenue) ||
+      input.serviceRevenue < 0
+    ) {
+      fail('Doanh thu dịch vụ container không hợp lệ.');
+    }
+    serviceRevenue = input.serviceRevenue;
+  }
+
   return {
     kind: kindValue,
     amount,
@@ -166,6 +178,7 @@ export function validateTxInput(value: unknown): TxInput {
     containerSize: text(input.containerSize, 'Kích thước container', 80),
     carrier: text(input.carrier, 'Đơn vị vận chuyển', 120),
     warehouseAddress: text(input.warehouseAddress, 'Địa chỉ kho', 200),
+    serviceRevenue,
     details: details(input.details),
     dueDate,
     paidAmount,
