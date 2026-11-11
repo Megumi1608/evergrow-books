@@ -38,6 +38,8 @@ import type {
   ShipmentFilter,
   ShipmentSummary,
   Transaction,
+  TransactionDraft,
+  TransactionDraftInput,
   TxFilter,
   TxInput,
   TxKind,
@@ -296,6 +298,16 @@ export class Store {
         created_at TEXT NOT NULL DEFAULT (datetime('now'))
       );
       CREATE INDEX IF NOT EXISTS idx_attachments_tx ON attachments(transaction_id);
+
+      CREATE TABLE IF NOT EXISTS transaction_drafts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        label TEXT NOT NULL DEFAULT '',
+        step INTEGER NOT NULL DEFAULT 0,
+        payload_json TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_drafts_updated ON transaction_drafts(updated_at);
 
       CREATE TABLE IF NOT EXISTS import_batches (
         id TEXT PRIMARY KEY,
@@ -1080,6 +1092,91 @@ export class Store {
   removeAttachment(id: number): void {
     const result = this.db.prepare('DELETE FROM attachments WHERE id = ?').run(id);
     if (Number(result.changes) === 0) throw new Error('Không tìm thấy chứng từ.');
+  }
+
+  listDrafts(): TransactionDraft[] {
+    const rows = this.db
+      .prepare(
+        `SELECT id, label, step, payload_json AS payloadJson,
+                created_at AS createdAt, updated_at AS updatedAt
+         FROM transaction_drafts ORDER BY updated_at DESC, id DESC`,
+      )
+      .all() as unknown as {
+      id: number;
+      label: string;
+      step: number;
+      payloadJson: string;
+      createdAt: string;
+      updatedAt: string;
+    }[];
+    return rows.map((row) => ({
+      id: row.id,
+      label: row.label,
+      step: row.step,
+      payload: this.parseDraftPayload(row.payloadJson),
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+    }));
+  }
+
+  saveDraft(input: TransactionDraftInput): TransactionDraft {
+    const payloadJson = JSON.stringify(input.payload ?? {});
+    if (input.id) {
+      const result = this.db
+        .prepare(
+          `UPDATE transaction_drafts
+           SET label = ?, step = ?, payload_json = ?, updated_at = datetime('now', 'localtime')
+           WHERE id = ?`,
+        )
+        .run(input.label, input.step, payloadJson, input.id);
+      if (Number(result.changes) === 0) throw new Error('Không tìm thấy nháp.');
+      return this.getDraft(input.id);
+    }
+    const result = this.db
+      .prepare('INSERT INTO transaction_drafts (label, step, payload_json) VALUES (?, ?, ?)')
+      .run(input.label, input.step, payloadJson);
+    return this.getDraft(Number(result.lastInsertRowid));
+  }
+
+  removeDraft(id: number): void {
+    const result = this.db.prepare('DELETE FROM transaction_drafts WHERE id = ?').run(id);
+    if (Number(result.changes) === 0) throw new Error('Không tìm thấy nháp.');
+  }
+
+  private getDraft(id: number): TransactionDraft {
+    const row = this.db
+      .prepare(
+        `SELECT id, label, step, payload_json AS payloadJson,
+                created_at AS createdAt, updated_at AS updatedAt
+         FROM transaction_drafts WHERE id = ?`,
+      )
+      .get(id) as
+      | {
+          id: number;
+          label: string;
+          step: number;
+          payloadJson: string;
+          createdAt: string;
+          updatedAt: string;
+        }
+      | undefined;
+    if (!row) throw new Error('Không tìm thấy nháp.');
+    return {
+      id: row.id,
+      label: row.label,
+      step: row.step,
+      payload: this.parseDraftPayload(row.payloadJson),
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+    };
+  }
+
+  private parseDraftPayload(json: string): unknown {
+    try {
+      return JSON.parse(json) as unknown;
+    } catch {
+      return {};
+    }
   }
 
   getBudgets(month: string): BudgetData {

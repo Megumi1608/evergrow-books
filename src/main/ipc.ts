@@ -16,6 +16,7 @@ import {
   validateCategoryInput,
   validateCompanySettings,
   validateConfirm,
+  validateDraftInput,
   validateFilter,
   validateId,
   validateImportOptions,
@@ -298,8 +299,13 @@ export function registerIpc(deps: IpcDeps): void {
     }
   });
 
-  handle('attachments:open', async (id: unknown) => {
-    const attachment = store.getAttachment(validateId(id, 'Chứng từ'));
+  handle('draft:list', () => store.listDrafts());
+
+  handle('draft:save', (input: unknown) => store.saveDraft(validateDraftInput(input)));
+
+  handle('draft:delete', (id: unknown) => store.removeDraft(validateId(id, 'Nháp')));
+
+  handle('attachments:open', async (id: unknown) => {    const attachment = store.getAttachment(validateId(id, 'Chứng từ'));
     if (!attachment) throw new Error('Không tìm thấy chứng từ.');
     const directory = path.join(app.getPath('temp'), 'evergrow-books-attachments');
     fs.mkdirSync(directory, { recursive: true });

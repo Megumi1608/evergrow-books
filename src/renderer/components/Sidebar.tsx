@@ -1,48 +1,94 @@
+import { useRef, type ForwardRefExoticComponent, type RefAttributes } from 'react';
 import {
-  ArrowLeftRight,
-  Bot,
-  ChartColumn,
   Check,
   CircleAlert,
-  Container,
   Download,
   Info,
-  LayoutDashboard,
   LoaderCircle,
-  Palette,
   PanelLeftClose,
   PanelLeftOpen,
   RefreshCw,
-  Settings,
-  Tags,
-  Target,
-  WalletCards,
 } from 'lucide-react';
+import {
+  BotIcon,
+  ChartColumnIncreasingIcon,
+  ChevronsLeftRightIcon,
+  GaugeIcon,
+  HomeIcon,
+  LayersIcon,
+  SettingsIcon,
+  ShipIcon,
+  SunMoonIcon,
+  WalletIcon,
+} from 'lucide-animated';
 import type { UpdateState } from '../../shared/types';
 import { LOGO_LEAF, LOGO_WORDMARK } from '../../shared/brand';
 
-const NAV_SECTIONS = [
+interface AnimatedIconHandle {
+  startAnimation: () => void;
+  stopAnimation: () => void;
+}
+
+type AnimatedIcon = ForwardRefExoticComponent<
+  { size?: number; animateOnHover?: boolean; className?: string } & RefAttributes<AnimatedIconHandle>
+>;
+
+interface NavEntry {
+  path: string;
+  label: string;
+  icon: AnimatedIcon;
+}
+
+const NAV_SECTIONS: { label: string; items: NavEntry[] }[] = [
   {
     label: 'Sổ sách',
     items: [
-      { path: '/dashboard', label: 'Tổng quan', icon: LayoutDashboard },
-      { path: '/transactions', label: 'Giao dịch', icon: ArrowLeftRight },
-      { path: '/shipments', label: 'Lô hàng', icon: Container },
-      { path: '/debts', label: 'Công nợ', icon: WalletCards },
-      { path: '/budgets', label: 'Ngân sách', icon: Target },
-      { path: '/categories', label: 'Danh mục', icon: Tags },
-      { path: '/reports', label: 'Báo cáo', icon: ChartColumn },
+      { path: '/dashboard', label: 'Tổng quan', icon: HomeIcon },
+      { path: '/transactions', label: 'Giao dịch', icon: ChevronsLeftRightIcon },
+      { path: '/shipments', label: 'Lô hàng', icon: ShipIcon },
+      { path: '/debts', label: 'Công nợ', icon: WalletIcon },
+      { path: '/budgets', label: 'Ngân sách', icon: GaugeIcon },
+      { path: '/categories', label: 'Danh mục', icon: LayersIcon },
+      { path: '/reports', label: 'Báo cáo', icon: ChartColumnIncreasingIcon },
     ],
   },
   {
     label: 'Hệ thống',
     items: [
-      { path: '/assistant', label: 'Trợ lý AI', icon: Bot },
-      { path: '/appearance', label: 'Giao diện', icon: Palette },
-      { path: '/settings', label: 'Cài đặt', icon: Settings },
+      { path: '/assistant', label: 'Trợ lý AI', icon: BotIcon },
+      { path: '/appearance', label: 'Giao diện', icon: SunMoonIcon },
+      { path: '/settings', label: 'Cài đặt', icon: SettingsIcon },
     ],
   },
 ];
+
+function NavItem({
+  item,
+  active,
+  collapsed,
+}: {
+  item: NavEntry;
+  active: boolean;
+  collapsed: boolean;
+}) {
+  const iconRef = useRef<AnimatedIconHandle>(null);
+  const Icon = item.icon;
+  return (
+    <a
+      href={`#${item.path}`}
+      className={`nav-item${active ? ' active' : ''}`}
+      aria-current={active ? 'page' : undefined}
+      title={collapsed ? item.label : undefined}
+      onMouseEnter={() => iconRef.current?.startAnimation()}
+      onMouseLeave={() => iconRef.current?.stopAnimation()}
+      onFocus={() => iconRef.current?.startAnimation()}
+      onBlur={() => iconRef.current?.stopAnimation()}
+    >
+      <Icon ref={iconRef} size={17} animateOnHover={false} className="nav-item-icon" />
+      <span>{item.label}</span>
+    </a>
+  );
+}
 
 function updateSummary(state: UpdateState): { label: string; icon: React.ReactNode; tone: string } {
   switch (state.status) {
@@ -130,22 +176,14 @@ export function Sidebar({
         {NAV_SECTIONS.map((section) => (
           <div className="nav-section" key={section.label}>
             <span className="nav-section-label">{section.label}</span>
-            {section.items.map((item) => {
-              const Icon = item.icon;
-              const active = path === item.path;
-              return (
-                <a
-                  key={item.path}
-                  href={`#${item.path}`}
-                  className={`nav-item${active ? ' active' : ''}`}
-                  aria-current={active ? 'page' : undefined}
-                  title={collapsed ? item.label : undefined}
-                >
-                  <Icon size={17} strokeWidth={active ? 2 : 1.8} />
-                  <span>{item.label}</span>
-                </a>
-              );
-            })}
+            {section.items.map((item) => (
+              <NavItem
+                key={item.path}
+                item={item}
+                active={path === item.path}
+                collapsed={collapsed}
+              />
+            ))}
           </div>
         ))}
       </nav>

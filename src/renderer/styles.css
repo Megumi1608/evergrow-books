@@ -242,6 +242,15 @@ input:focus-visible {
   transition: transform 0.16s var(--ease-out);
 }
 
+.nav-item-icon {
+  display: flex;
+  flex: none;
+}
+
+.nav-item:not(.active) .nav-item-icon svg {
+  stroke-width: 1.8;
+}
+
 .nav-item:hover {
   background: color-mix(in srgb, var(--surface) 65%, transparent);
   color: var(--ink);
@@ -2518,6 +2527,35 @@ input[type='number']::-webkit-inner-spin-button {
   background: var(--soft);
 }
 
+.draft-list {
+  gap: 6px;
+}
+
+.draft-item {
+  padding: 9px 10px;
+}
+
+.draft-info {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.draft-info strong {
+  overflow: hidden;
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.draft-info span {
+  font-size: 9.5px;
+  color: var(--muted);
+}
+
 .attachment-badge {
   padding: 1px 6px;
   border-radius: 99px;
@@ -2912,13 +2950,17 @@ input[type='number']::-webkit-inner-spin-button {
 
 .toast-stack {
   position: fixed;
-  right: 86px;
+  right: 22px;
   bottom: 22px;
   z-index: 400;
   display: flex;
   flex-direction: column;
   gap: 8px;
   max-width: min(460px, calc(100vw - 44px));
+}
+
+body:has(.ai-bubble) .toast-stack {
+  bottom: 82px;
 }
 
 .toast {
@@ -3545,7 +3587,7 @@ input[type='number']::-webkit-inner-spin-button {
 }
 
 .wizard-step.active {
-  border-color: var(--ink);
+  border-color: var(--line);
   background: var(--soft);
   color: var(--ink);
 }

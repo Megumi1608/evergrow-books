@@ -7,15 +7,22 @@ import type {
   Method,
   StagedAttachment,
   Transaction,
+  TransactionDraft,
   TxInput,
 } from '../../shared/types';
 import { CURRENCIES, CURRENCY_LABELS, CURRENCY_SUFFIX, METHOD_LABELS } from '../../shared/types';
-import { todayIso } from '../../shared/dates';
+import {
+  buildContainerSize,
+  containerSummary,
+  parseContainerCounts,
+  splitContainerNos,
+} from '../../shared/containers';
+import { todayIso, formatDate } from '../../shared/dates';
 import { formatNumber, formatSignedVnd, formatVnd, parseAmount } from '../../shared/format';
 import { api, getErrorMessage } from '../api';
 import { feeLabel, orderedDetailEntries } from './FeeBreakdown';
 import { useToast } from './toast';
-import { Checkbox, ComboBox, DateInput, Dropdown, Modal } from './ui';
+import { Checkbox, ComboBox, ConfirmDialog, DateInput, Dropdown, Modal } from './ui';
 
 const METHOD_OPTIONS = Object.entries(METHOD_LABELS) as [Method, string][];
 const CURRENCY_OPTIONS = CURRENCIES.map((value) => ({ value, label: CURRENCY_LABELS[value] }));
@@ -78,11 +85,14 @@ interface DeclarationDraft {
   goodsName: string;
   goodsType: string;
   containerNo: string;
-  containerChoice: ContainerChoice;
-  containerCount: number;
-  containerCountText: string;
+  containerCount20: number;
+  containerCount20Text: string;
+  containerCount40: number;
+  containerCount40Text: string;
   containerDirty: boolean;
-  serviceRevenueText: string;
+  serviceFee20Text: string;
+  serviceFee40Text: string;
+  serviceFeeDirty: boolean;
 }
 
 interface ExpenseDraft {
@@ -95,9 +105,9 @@ interface ExpenseDraft {
   carrier: string;
   warehouseAddress: string;
   note: string;
-  costText: string;
+  cost20Text: string;
+  cost40Text: string;
   vatText: string;
-  costDirty: boolean;
   vatDirty: boolean;
   debt: DebtDraft;
 }
@@ -165,19 +175,6 @@ function buildExpenseDetails(
   return details;
 }
 
-function parseContainerInfo(text: string): { size: ContainerChoice | ''; count: number } {
-  const matches = [...text.matchAll(/(20|40)\s*'?\s*(?:×|x|\*)\s*(\d+)/gi)];
-  if (matches.length === 1) {
-    return {
-      size: matches[0][1] === '40' ? '40' : '20',
-      count: Math.min(10, Math.max(1, Number(matches[0][2]) || 1)),
-    };
-  }
-  if (/^20\s*'?$/i.test(text.trim())) return { size: '20', count: 1 };
-  if (/^40\s*'?$/i.test(text.trim())) return { size: '40', count: 1 };
-  return { size: '', count: 1 };
-}
-
 function emptyDebt(): DebtDraft {
   return { track: false, dueDate: '', paidAmount: 0, paidText: '' };
 }
@@ -193,7 +190,14 @@ function initialDebt(transaction: Transaction | null, kind: 'expense' | 'income'
 }
 
 function initialDeclaration(transaction: Transaction | null): DeclarationDraft {
-  const container = parseContainerInfo(transaction?.containerSize ?? '');
+  const counts = transaction
+    ? parseContainerCounts(transaction.containerSize)
+    : { count20: 1, count40: 0 };
+  const totalCount = counts.count20 + counts.count40;
+  const rate =
+    transaction?.serviceRevenue && totalCount > 0
+      ? Math.round(transaction.serviceRevenue / totalCount)
+      : 0;
   return {
     party: transaction?.party ?? '',
     reference: transaction?.reference ?? '',
@@ -201,11 +205,14 @@ function initialDeclaration(transaction: Transaction | null): DeclarationDraft {
     goodsName: transaction?.goodsName ?? '',
     goodsType: transaction?.goodsType ?? '',
     containerNo: transaction?.containerNo ?? '',
-    containerChoice: container.size || '20',
-    containerCount: container.count,
-    containerCountText: String(container.count),
+    containerCount20: counts.count20,
+    containerCount20Text: String(counts.count20),
+    containerCount40: counts.count40,
+    containerCount40Text: String(counts.count40),
     containerDirty: !transaction,
-    serviceRevenueText: transaction?.serviceRevenue ? formatNumber(transaction.serviceRevenue) : '',
+    serviceFee20Text: counts.count20 > 0 && rate > 0 ? formatNumber(rate) : '',
+    serviceFee40Text: counts.count40 > 0 && rate > 0 ? formatNumber(rate) : '',
+    serviceFeeDirty: !transaction,
   };
 }
 
@@ -215,6 +222,10 @@ function initialExpense(transaction: Transaction | null): ExpenseDraft {
   const storedService = detailValue(details, EXPENSE_DETAIL_ALIASES.service);
   const storedCost = storedService > 0 ? Math.round(storedService / (1 + VAT_RATE)) : 0;
   const storedVat = storedService > 0 ? storedService - storedCost : 0;
+  const counts = parseContainerCounts(transaction?.containerSize ?? '');
+  const standardCost =
+    counts.count20 * CONTAINER_UNIT_FEE['20'] + counts.count40 * CONTAINER_UNIT_FEE['40'];
+  const scale = storedCost > 0 && standardCost > 0 ? storedCost / standardCost : 1;
   return {
     enabled: transaction ? isExpense : true,
     occurredOn: isExpense ? transaction.occurredOn : todayIso(),
@@ -225,9 +236,9 @@ function initialExpense(transaction: Transaction | null): ExpenseDraft {
     carrier: isExpense ? transaction.carrier : '',
     warehouseAddress: isExpense ? transaction.warehouseAddress : '',
     note: isExpense ? transaction.note : '',
-    costText: storedService > 0 ? formatNumber(storedCost) : '',
+    cost20Text: formatNumber(Math.round(CONTAINER_UNIT_FEE['20'] * scale)),
+    cost40Text: formatNumber(Math.round(CONTAINER_UNIT_FEE['40'] * scale)),
     vatText: storedService > 0 ? formatNumber(storedVat) : '',
-    costDirty: storedService > 0,
     vatDirty: storedService > 0,
     debt: initialDebt(transaction, 'expense'),
   };
@@ -315,20 +326,72 @@ function debtBlock(
   );
 }
 
+interface DraftSnapshot {
+  version: 1;
+  decl: DeclarationDraft;
+  expense: ExpenseDraft;
+  income: IncomeDraft;
+  stepIndex: number;
+  showIncomeExtras: boolean;
+}
+
+function readDraftSnapshot(draft: TransactionDraft): DraftSnapshot | null {
+  const payload = draft.payload;
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null;
+  const data = payload as Partial<DraftSnapshot>;
+  if (!data.decl || typeof data.decl !== 'object') return null;
+  if (!data.expense || typeof data.expense !== 'object') return null;
+  if (!data.income || typeof data.income !== 'object') return null;
+  const baseDecl = initialDeclaration(null);
+  const baseExpense = initialExpense(null);
+  const baseIncome = initialIncome(null);
+  const expenseData = data.expense as Partial<ExpenseDraft>;
+  const incomeData = data.income as Partial<IncomeDraft>;
+  return {
+    version: 1,
+    decl: { ...baseDecl, ...data.decl },
+    expense: {
+      ...baseExpense,
+      ...expenseData,
+      costs: { ...baseExpense.costs, ...expenseData.costs },
+      debt: { ...baseExpense.debt, ...expenseData.debt },
+    },
+    income: {
+      ...baseIncome,
+      ...incomeData,
+      feeRows: Array.isArray(incomeData.feeRows) ? incomeData.feeRows : baseIncome.feeRows,
+      debt: { ...baseIncome.debt, ...incomeData.debt },
+    },
+    stepIndex: Number.isInteger(data.stepIndex)
+      ? Math.max(0, Math.min(9, Number(data.stepIndex)))
+      : 0,
+    showIncomeExtras: Boolean(data.showIncomeExtras),
+  };
+}
+
 export function TransactionModal({
   transaction,
+  draft = null,
   onClose,
   onSaved,
 }: {
   transaction: Transaction | null;
+  draft?: TransactionDraft | null;
   onClose: () => void;
   onSaved: (transaction: Transaction) => void;
 }) {
   const toast = useToast();
+  const draftSnapshot = useMemo(() => (draft ? readDraftSnapshot(draft) : null), [draft]);
   const [categories, setCategories] = useState<Category[]>([]);
-  const [decl, setDecl] = useState<DeclarationDraft>(() => initialDeclaration(transaction));
-  const [expense, setExpense] = useState<ExpenseDraft>(() => initialExpense(transaction));
-  const [income, setIncome] = useState<IncomeDraft>(() => initialIncome(transaction));
+  const [decl, setDecl] = useState<DeclarationDraft>(
+    () => draftSnapshot?.decl ?? initialDeclaration(transaction),
+  );
+  const [expense, setExpense] = useState<ExpenseDraft>(
+    () => draftSnapshot?.expense ?? initialExpense(transaction),
+  );
+  const [income, setIncome] = useState<IncomeDraft>(
+    () => draftSnapshot?.income ?? initialIncome(transaction),
+  );
   const [customers, setCustomers] = useState<string[]>([]);
   const [carriers, setCarriers] = useState<string[]>([]);
   const [goodsTypes, setGoodsTypes] = useState<string[]>([]);
@@ -337,21 +400,26 @@ export function TransactionModal({
   const [attachmentBusy, setAttachmentBusy] = useState(false);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
-  const [stepIndex, setStepIndex] = useState(0);
+  const [draftSaving, setDraftSaving] = useState(false);
+  const [stepIndex, setStepIndex] = useState(() => draftSnapshot?.stepIndex ?? 0);
   const [showIncomeExtras, setShowIncomeExtras] = useState(
-    Boolean(
-      transaction?.reference ||
-        transaction?.port ||
-        transaction?.goodsName ||
-        transaction?.goodsType ||
-        transaction?.containerNo ||
-        transaction?.containerSize ||
-        transaction?.carrier ||
-        transaction?.warehouseAddress,
-    ),
+    () =>
+      draftSnapshot?.showIncomeExtras ??
+      Boolean(
+        transaction?.reference ||
+          transaction?.port ||
+          transaction?.goodsName ||
+          transaction?.goodsType ||
+          transaction?.containerNo ||
+          transaction?.containerSize ||
+          transaction?.carrier ||
+          transaction?.warehouseAddress,
+      ),
   );
   const feeRowsRef = useRef<HTMLDivElement>(null);
   const focusNewFee = useRef(false);
+  const draftId = useRef<number | null>(draft?.id ?? null);
+  const closingRef = useRef(false);
 
   const steps = useMemo<{ key: StepKey; label: string; hint: string }[]>(() => {
     const declaration: { key: StepKey; label: string; hint: string } = {
@@ -379,6 +447,10 @@ export function TransactionModal({
   }, [transaction]);
   const currentStep = steps[Math.min(stepIndex, steps.length - 1)];
   const lastStep = steps.length - 1;
+
+  useEffect(() => {
+    setStepIndex((current) => Math.min(current, lastStep));
+  }, [lastStep]);
 
   useEffect(() => {
     let alive = true;
@@ -453,12 +525,17 @@ export function TransactionModal({
     );
   }, [incomeOptions]);
 
-  const autoCost = CONTAINER_UNIT_FEE[decl.containerChoice] * decl.containerCount;
-  const costAmount = expense.costDirty ? parseAmount(expense.costText) : autoCost;
+  const costAmount =
+    decl.containerCount20 * parseAmount(expense.cost20Text) +
+    decl.containerCount40 * parseAmount(expense.cost40Text);
   const autoVat = Math.round(costAmount * VAT_RATE);
   const vatAmount = expense.vatDirty ? parseAmount(expense.vatText) : autoVat;
-  const costDisplay = expense.costDirty ? expense.costText : formatNumber(autoCost);
   const vatDisplay = expense.vatDirty ? expense.vatText : formatNumber(autoVat);
+  const containerLabel = containerSummary(decl.containerCount20, decl.containerCount40);
+  const containerNumbers = splitContainerNos(decl.containerNo);
+  const containerTotal = decl.containerCount20 + decl.containerCount40;
+  const containerOverflow = containerNumbers.length > containerTotal;
+  const costLabel = `Tiền cost (${containerLabel})`;
   const serviceFee = costAmount + vatAmount;
   const costValue = (key: ExpenseCostKey) => parseAmount(expense.costs[key]);
   const truckFee = costValue('lift') + costValue('lower') + costValue('far') + costValue('bot');
@@ -474,30 +551,61 @@ export function TransactionModal({
     expense.amountDirty || savedExpenseAmount === undefined ? computedExpenseAmount : savedExpenseAmount;
   const incomeAmountVnd =
     income.currency === 'VND' ? income.amount : Math.round(income.amount * income.exchangeRate);
-  const serviceRevenue = parseAmount(decl.serviceRevenueText);
+  const computedServiceRevenue = Math.round(
+    decl.containerCount20 * parseAmount(decl.serviceFee20Text) +
+      decl.containerCount40 * parseAmount(decl.serviceFee40Text),
+  );
+  const serviceRevenue =
+    transaction && !decl.serviceFeeDirty ? transaction.serviceRevenue : computedServiceRevenue;
+  const serviceRevenueLabel = `Phí dịch vụ thu khách (${containerLabel})`;
   const totalIncome = serviceRevenue + truckFee;
   const profit = totalIncome - totalExpense;
   const showRevenueSummary = !transaction || transaction.kind === 'expense';
+  const draftBaseline = useMemo(
+    () =>
+      JSON.stringify({
+        decl: initialDeclaration(null),
+        expense: initialExpense(null),
+        income: initialIncome(null),
+      }),
+    [],
+  );
+  const draftHasContent = useMemo(
+    () => JSON.stringify({ decl, expense, income }) !== draftBaseline,
+    [decl, expense, income, draftBaseline],
+  );
 
-  const changeContainerChoice = (choice: ContainerChoice) => {
-    setDecl((current) => ({ ...current, containerChoice: choice, containerDirty: true }));
-    setExpense((current) => ({ ...current, amountDirty: true }));
-  };
-
-  const changeContainerCount = (raw: string) => {
+  const changeContainerCount = (size: ContainerChoice, raw: string) => {
     const digits = raw.replace(/\D/g, '').slice(0, 2);
-    const parsed = digits ? Number(digits) : 0;
+    const parsed = digits ? Math.min(10, Number(digits)) : 0;
     setDecl((current) => ({
       ...current,
-      containerCountText: digits,
-      containerCount: Math.min(10, Math.max(1, parsed || 1)),
+      ...(size === '20'
+        ? { containerCount20: parsed, containerCount20Text: digits }
+        : { containerCount40: parsed, containerCount40Text: digits }),
       containerDirty: true,
+      serviceFeeDirty: true,
     }));
-    setExpense((current) => ({ ...current, amountDirty: true }));
+    setExpense((current) => ({ ...current, amountDirty: true, vatDirty: false }));
   };
 
-  const normalizeContainerCount = () => {
-    setDecl((current) => ({ ...current, containerCountText: String(current.containerCount) }));
+  const updateServiceFee = (size: ContainerChoice, raw: string) => {
+    const parsed = parseAmount(raw);
+    setDecl((current) => ({
+      ...current,
+      [size === '20' ? 'serviceFee20Text' : 'serviceFee40Text']:
+        parsed > 0 ? formatNumber(parsed) : '',
+      serviceFeeDirty: true,
+    }));
+  };
+
+  const normalizeContainerCount = (size: ContainerChoice) => {
+    setDecl((current) => ({
+      ...current,
+      ...(size === '20'
+        ? { containerCount20Text: String(current.containerCount20) }
+        : { containerCount40Text: String(current.containerCount40) }),
+    }));
   };
 
   const updateExpenseCost = (key: ExpenseCostKey, raw: string) => {
@@ -512,12 +620,11 @@ export function TransactionModal({
     }));
   };
 
-  const updateCost = (raw: string) => {
+  const updateCost = (size: ContainerChoice, raw: string) => {
     const parsed = parseAmount(raw);
     setExpense((current) => ({
       ...current,
-      costText: parsed > 0 ? formatNumber(parsed) : '',
-      costDirty: true,
+      [size === '20' ? 'cost20Text' : 'cost40Text']: parsed > 0 ? formatNumber(parsed) : '',
       amountDirty: true,
     }));
   };
@@ -640,11 +747,24 @@ export function TransactionModal({
 
   const expenseContainerSize =
     decl.containerDirty || !transaction
-      ? `${decl.containerChoice}' ×${decl.containerCount}`
+      ? buildContainerSize(decl.containerCount20, decl.containerCount40)
       : transaction.containerSize;
+
+  const removeDraft = async () => {
+    if (!draftId.current) return;
+    const id = draftId.current;
+    draftId.current = null;
+    await api.drafts.remove(id).catch(() => undefined);
+  };
 
   const submit = async () => {
     setError('');
+    if (containerOverflow) {
+      setError(
+        `Đã nhập ${containerNumbers.length} số container, vượt quá tổng ${containerTotal} container (20' + 40').`,
+      );
+      return;
+    }
     const today = todayIso();
     const inputs: TxInput[] = [];
 
@@ -811,6 +931,7 @@ export function TransactionModal({
         }
       } catch (err) {
         if (savedList.length > 0) {
+          await removeDraft();
           toast(
             `Đã lưu ${savedList.length} giao dịch, nhưng giao dịch tiếp theo lỗi: ${getErrorMessage(err)}`,
             'error',
@@ -834,6 +955,7 @@ export function TransactionModal({
           );
         }
       }
+      await removeDraft();
       toast(inputs.length > 1 ? 'Đã thêm giao dịch chi phí và thu nhập.' : 'Đã thêm giao dịch.');
       onSaved(savedList[0]);
     } catch (err) {
@@ -843,13 +965,127 @@ export function TransactionModal({
     }
   };
 
-  const handleSubmit = (event: React.FormEvent) => {
-    event.preventDefault();
+  const containerError = `Đã nhập ${containerNumbers.length} số container, vượt quá tổng ${containerTotal} container (20' + 40').`;
+  const goNext = () => {
+    if (currentStep.key === 'declaration' && containerOverflow) {
+      setError(containerError);
+      return;
+    }
     if (stepIndex < lastStep) {
+      setError('');
       setStepIndex((current) => Math.min(lastStep, current + 1));
       return;
     }
     void submit();
+  };
+
+  const moveStep = (delta: -1 | 1) => {
+    if (delta === 1) {
+      if (stepIndex >= lastStep) return;
+      if (currentStep.key === 'declaration' && containerOverflow) {
+        setError(containerError);
+        return;
+      }
+      setError('');
+      setStepIndex((current) => Math.min(lastStep, current + 1));
+      return;
+    }
+    if (stepIndex <= 0) return;
+    setError('');
+    setStepIndex((current) => Math.max(0, current - 1));
+  };
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+      if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+      if (event.defaultPrevented) return;
+      const target = event.target instanceof HTMLElement ? event.target : null;
+      if (
+        target &&
+        (target.isContentEditable ||
+          target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.tagName === 'SELECT')
+      ) {
+        return;
+      }
+      if (document.querySelector('[role="listbox"]')) return;
+      if (document.querySelectorAll('[role="dialog"]').length > 1) return;
+      const next = event.key === 'ArrowRight' ? 1 : -1;
+      const canMove =
+        next === 1 ? stepIndex < lastStep : stepIndex > 0;
+      if (!canMove) return;
+      event.preventDefault();
+      moveStep(next);
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [stepIndex, lastStep, currentStep.key, containerOverflow, containerError]);
+
+  const handleSubmit = (event: React.FormEvent) => {
+    event.preventDefault();
+    goNext();
+  };
+
+  const persistDraft = async (): Promise<'saved' | 'removed' | 'empty'> => {
+    if (transaction) return 'empty';
+    if (!draftHasContent) {
+      if (!draftId.current) return 'empty';
+      await removeDraft();
+      return 'removed';
+    }
+    const label = (
+      decl.reference
+        ? `${decl.reference}${decl.party ? ` · ${decl.party}` : ''}`
+        : decl.party || decl.goodsName || decl.containerNo || 'Nháp mới'
+    ).slice(0, 160);
+    const saved = await api.drafts.save({
+      id: draftId.current ?? undefined,
+      label,
+      step: stepIndex,
+      payload: { version: 1, decl, expense, income, stepIndex, showIncomeExtras },
+    });
+    draftId.current = saved.id;
+    return 'saved';
+  };
+
+  const draftSavedMessage =
+    pendingAttachments.length > 0
+      ? 'Đã lưu nháp. Chứng từ chưa được giữ.'
+      : 'Đã lưu nháp.';
+
+  const handleSaveDraft = async () => {
+    if (draftSaving || saving) return;
+    setDraftSaving(true);
+    try {
+      const result = await persistDraft();
+      if (result === 'saved') toast(draftSavedMessage);
+      else if (result === 'removed') toast('Đã xoá nháp trống.');
+      else toast('Chưa có thông tin để lưu nháp.', 'info');
+    } catch (error) {
+      toast(getErrorMessage(error), 'error');
+    } finally {
+      setDraftSaving(false);
+    }
+  };
+
+  const closeWithDraft = () => {
+    if (closingRef.current || saving) return;
+    if (transaction) {
+      onClose();
+      return;
+    }
+    closingRef.current = true;
+    void persistDraft()
+      .then((result) => {
+        if (result === 'saved') toast(draftSavedMessage);
+        onClose();
+      })
+      .catch((error) => {
+        toast(getErrorMessage(error), 'error');
+        onClose();
+      });
   };
 
   const attachmentHint =
@@ -861,13 +1097,24 @@ export function TransactionModal({
     <Modal
       title={transaction ? 'Sửa giao dịch' : 'Thêm giao dịch'}
       subtitle={`Bước ${stepIndex + 1}/${steps.length} · ${currentStep.label}`}
-      onClose={onClose}
-      width={640}
+      onClose={closeWithDraft}
+      width={860}
       footer={
         <>
-          <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>
+          <button type="button" className="btn btn-ghost" onClick={closeWithDraft} disabled={saving}>
             Huỷ
           </button>
+          {!transaction ? (
+            <button
+              type="button"
+              className="btn btn-outline"
+              onClick={handleSaveDraft}
+              disabled={saving || draftSaving || !draftHasContent}
+            >
+              {draftSaving ? <LoaderCircle size={14} className="spin" /> : null}
+              Lưu nháp
+            </button>
+          ) : null}
           <div className="wizard-foot-actions">
             {stepIndex > 0 ? (
               <button
@@ -883,13 +1130,7 @@ export function TransactionModal({
               type="button"
               className="btn btn-primary"
               disabled={saving}
-              onClick={() => {
-                if (stepIndex < lastStep) {
-                  setStepIndex((current) => Math.min(lastStep, current + 1));
-                } else {
-                  void submit();
-                }
-              }}
+              onClick={goNext}
             >
               {saving ? <LoaderCircle size={15} className="spin" /> : null}
               {stepIndex < lastStep ? 'Tiếp tục' : transaction ? 'Lưu thay đổi' : 'Thêm giao dịch'}
@@ -910,7 +1151,13 @@ export function TransactionModal({
                 className={`wizard-step${index === stepIndex ? ' active' : ''}${
                   index < stepIndex ? ' done' : ''
                 }`}
-                onClick={() => setStepIndex(index)}
+                onClick={() => {
+                  if (index > stepIndex && currentStep.key === 'declaration' && containerOverflow) {
+                    setError(containerError);
+                    return;
+                  }
+                  setStepIndex(index);
+                }}
                 aria-current={index === stepIndex ? 'step' : undefined}
               >
                 <span className="wizard-step-num">
@@ -996,72 +1243,89 @@ export function TransactionModal({
                   <input
                     className="input"
                     value={decl.containerNo}
-                    maxLength={80}
-                    placeholder="VD: FCIU5956792"
+                    maxLength={400}
+                    placeholder="VD: FCIU5956792, TGHU1234567"
                     onChange={(event) =>
                       setDecl((current) => ({ ...current, containerNo: event.target.value }))
                     }
                   />
                 </label>
               </div>
+              <p className={`hint no-pad${containerOverflow ? ' expense-warning' : ''}`}>
+                {containerOverflow
+                  ? `Đã nhập ${containerNumbers.length} số container, vượt quá tổng ${containerTotal} container (20' + 40').`
+                  : `Nhập nhiều số container, cách nhau bằng dấu phẩy. Đã nhập ${containerNumbers.length}/${containerTotal}.`}
+              </p>
               <div className="form-row">
                 <label className="field">
-                  <span className="field-label">Số lượng cont</span>
+                  <span className="field-label">Số lượng cont 20'</span>
                   <input
                     className="input"
                     inputMode="numeric"
-                    value={decl.containerCountText}
+                    value={decl.containerCount20Text}
                     maxLength={2}
-                    placeholder="1"
+                    placeholder="0"
                     onFocus={(event) => event.currentTarget.select()}
-                    onChange={(event) => changeContainerCount(event.target.value)}
-                    onBlur={normalizeContainerCount}
+                    onChange={(event) => changeContainerCount('20', event.target.value)}
+                    onBlur={() => normalizeContainerCount('20')}
                   />
                 </label>
                 <label className="field">
-                  <span className="field-label">Kích thước cont</span>
-                  <Dropdown
-                    value={decl.containerChoice}
-                    onChange={changeContainerChoice}
-                    options={[
-                      { value: '20', label: "20'" },
-                      { value: '40', label: "40'" },
-                    ]}
-                    size="md"
-                    ariaLabel="Kích thước container"
+                  <span className="field-label">Số lượng cont 40'</span>
+                  <input
+                    className="input"
+                    inputMode="numeric"
+                    value={decl.containerCount40Text}
+                    maxLength={2}
+                    placeholder="0"
+                    onFocus={(event) => event.currentTarget.select()}
+                    onChange={(event) => changeContainerCount('40', event.target.value)}
+                    onBlur={() => normalizeContainerCount('40')}
                   />
                 </label>
               </div>
               {!decl.containerDirty && transaction?.containerSize ? (
                 <p className="hint no-pad">
-                  Dữ liệu cũ: {transaction.containerSize}. Sửa số lượng/kích thước để thay thế.
+                  Dữ liệu cũ: {transaction.containerSize}. Sửa số lượng để thay thế.
                 </p>
               ) : null}
               {showRevenueSummary ? (
                 <>
-                  <label className="field">
-                    <span className="field-label">Phí dịch vụ container thu khách</span>
-                    <span className="amount-wrap">
-                      <input
-                        className="input"
-                        inputMode="numeric"
-                        value={decl.serviceRevenueText}
-                        placeholder="0"
-                        onChange={(event) => {
-                          const parsed = parseAmount(event.target.value);
-                          setDecl((current) => ({
-                            ...current,
-                            serviceRevenueText: parsed > 0 ? formatNumber(parsed) : '',
-                          }));
-                        }}
-                      />
-                      <span className="amount-suffix">đ</span>
-                    </span>
-                    <span className="hint no-pad">Số tiền bạn muốn thu khách cho dịch vụ container.</span>
-                  </label>
+                  <div className="form-row">
+                    <label className="field">
+                      <span className="field-label">Phí dịch vụ sẽ thu khách / cont 20'</span>
+                      <span className="amount-wrap">
+                        <input
+                          className="input"
+                          inputMode="numeric"
+                          value={decl.serviceFee20Text}
+                          placeholder="0"
+                          onChange={(event) => updateServiceFee('20', event.target.value)}
+                        />
+                        <span className="amount-suffix">đ</span>
+                      </span>
+                    </label>
+                    <label className="field">
+                      <span className="field-label">Phí dịch vụ sẽ thu khách / cont 40'</span>
+                      <span className="amount-wrap">
+                        <input
+                          className="input"
+                          inputMode="numeric"
+                          value={decl.serviceFee40Text}
+                          placeholder="0"
+                          onChange={(event) => updateServiceFee('40', event.target.value)}
+                        />
+                        <span className="amount-suffix">đ</span>
+                      </span>
+                    </label>
+                  </div>
+                  <p className="hint no-pad">
+                    Nhập đơn giá thu khách mỗi container. Tổng thu tự tính = số lượng cont 20' × đơn
+                    giá 20' + số lượng cont 40' × đơn giá 40'.
+                  </p>
                   <div className="expense-calc">
                     <div className="expense-calc-row">
-                      <span>Phí dịch vụ container thu khách</span>
+                      <span>{serviceRevenueLabel}</span>
                       <strong>{formatVnd(serviceRevenue)}</strong>
                     </div>
                     <div className="expense-calc-row">
@@ -1276,17 +1540,36 @@ export function TransactionModal({
                   </div>
                   <div className="form-row">
                     <label className="field">
-                      <span className="field-label">Tiền cost (container)</span>
+                      <span className="field-label">Tiền cost / cont 20'</span>
                       <span className="amount-wrap">
                         <input
                           className="input"
                           inputMode="numeric"
-                          value={costDisplay}
+                          value={expense.cost20Text}
                           placeholder="0"
-                          onChange={(event) => updateCost(event.target.value)}
+                          onChange={(event) => updateCost('20', event.target.value)}
                         />
                         <span className="amount-suffix">đ</span>
                       </span>
+                    </label>
+                    <label className="field">
+                      <span className="field-label">Tiền cost / cont 40'</span>
+                      <span className="amount-wrap">
+                        <input
+                          className="input"
+                          inputMode="numeric"
+                          value={expense.cost40Text}
+                          placeholder="0"
+                          onChange={(event) => updateCost('40', event.target.value)}
+                        />
+                        <span className="amount-suffix">đ</span>
+                      </span>
+                    </label>
+                  </div>
+                  <div className="form-row">
+                    <label className="field">
+                      <span className="field-label">{costLabel}</span>
+                      <span className="readonly-value">{formatVnd(costAmount)}</span>
                     </label>
                     <label className="field">
                       <span className="field-label">VAT của tiền cost</span>
@@ -1618,8 +1901,8 @@ export function TransactionModal({
                         <input
                           className="input"
                           value={decl.containerNo}
-                          maxLength={80}
-                          placeholder="VD: FCIU5956792"
+                          maxLength={400}
+                          placeholder="VD: FCIU5956792, TGHU1234567"
                           onChange={(event) =>
                             setDecl((current) => ({ ...current, containerNo: event.target.value }))
                           }
@@ -1638,6 +1921,11 @@ export function TransactionModal({
                         />
                       </label>
                     </div>
+                    <p className={`hint no-pad${containerOverflow ? ' expense-warning' : ''}`}>
+                      {containerOverflow
+                        ? `Đã nhập ${containerNumbers.length} số container, vượt quá tổng ${containerTotal} container (20' + 40').`
+                        : `Nhập nhiều số container, cách nhau bằng dấu phẩy. Đã nhập ${containerNumbers.length}/${containerTotal}.`}
+                    </p>
                     <label className="field">
                       <span className="field-label">Đơn vị vận chuyển</span>
                       <input
@@ -1680,7 +1968,7 @@ export function TransactionModal({
               </div>
               <div className="expense-calc">
                 <div className="expense-calc-row">
-                  <span>Phí dịch vụ container thu khách</span>
+                  <span>{serviceRevenueLabel}</span>
                   <strong>{formatVnd(serviceRevenue)}</strong>
                 </div>
                 <div className="expense-calc-row">
@@ -1716,6 +2004,112 @@ export function TransactionModal({
         {error ? <p className="form-error">{error}</p> : null}
       </form>
     </Modal>
+  );
+}
+
+const DRAFT_STEP_LABELS = ['Thông tin tờ khai', 'Chi phí', 'Lợi nhuận', 'Thu nhập'];
+
+function formatDraftTime(value: string): string {
+  const [date, time] = value.split(' ');
+  if (!date) return '';
+  return `${formatDate(date)}${time ? ` ${time.slice(0, 5)}` : ''}`;
+}
+
+export function TransactionDraftPicker({
+  drafts,
+  onClose,
+  onCreate,
+  onResume,
+  onDelete,
+}: {
+  drafts: TransactionDraft[];
+  onClose: () => void;
+  onCreate: () => void;
+  onResume: (draft: TransactionDraft) => void;
+  onDelete: (draft: TransactionDraft) => Promise<void>;
+}) {
+  const toast = useToast();
+  const [deleteTarget, setDeleteTarget] = useState<TransactionDraft | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  return (
+    <>
+      <Modal
+        title="Giao dịch nháp"
+        subtitle="Chọn nháp để tiếp tục chỉnh sửa hoặc tạo giao dịch mới."
+        onClose={onClose}
+        width={560}
+        footer={
+          <>
+            <button type="button" className="btn btn-ghost" onClick={onClose}>
+              Đóng
+            </button>
+            <button type="button" className="btn btn-primary" onClick={onCreate}>
+              Tạo giao dịch mới
+            </button>
+          </>
+        }
+      >
+        {drafts.length === 0 ? (
+          <p className="hint no-pad">Không có nháp nào.</p>
+        ) : (
+          <div className="attachment-list draft-list">
+            {drafts.map((draft) => (
+              <div className="attachment-item draft-item" key={draft.id}>
+                <FileText size={15} />
+                <div className="draft-info">
+                  <strong title={draft.label}>{draft.label || 'Nháp mới'}</strong>
+                  <span>
+                    {DRAFT_STEP_LABELS[draft.step] ?? 'Nháp'} · Cập nhật{' '}
+                    {formatDraftTime(draft.updatedAt)}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  className="btn btn-outline btn-sm"
+                  onClick={() => onResume(draft)}
+                >
+                  Tiếp tục
+                </button>
+                <button
+                  type="button"
+                  className="icon-btn sm"
+                  aria-label="Xoá nháp"
+                  title="Xoá nháp"
+                  onClick={() => setDeleteTarget(draft)}
+                >
+                  <Trash size={13} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </Modal>
+      {deleteTarget ? (
+        <ConfirmDialog
+          title="Xoá nháp?"
+          description={
+            <>
+              Nháp <strong>{deleteTarget.label || 'Nháp mới'}</strong> sẽ bị xoá vĩnh viễn.
+            </>
+          }
+          confirmLabel="Xoá nháp"
+          danger
+          busy={deleting}
+          onClose={() => {
+            if (!deleting) setDeleteTarget(null);
+          }}
+          onConfirm={() => {
+            if (deleting) return;
+            setDeleting(true);
+            void onDelete(deleteTarget)
+              .then(() => setDeleteTarget(null))
+              .catch((error) => toast(getErrorMessage(error), 'error'))
+              .finally(() => setDeleting(false));
+          }}
+        />
+      ) : null}
+    </>
   );
 }
 

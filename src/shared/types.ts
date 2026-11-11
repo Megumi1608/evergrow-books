@@ -386,6 +386,22 @@ export interface BackupInfo {
   count: number;
 }
 
+export interface TransactionDraft {
+  id: number;
+  label: string;
+  step: number;
+  payload: unknown;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TransactionDraftInput {
+  id?: number;
+  label: string;
+  step: number;
+  payload: unknown;
+}
+
 export type AiProvider = 'openai' | 'anthropic';
 
 export interface AiConfig {
@@ -536,6 +552,11 @@ export interface EvergrowApi {
     stage(): Promise<StagedAttachment | null>;
     commit(transactionId: number, tokens: string[]): Promise<void>;
     open(id: number): Promise<void>;
+    remove(id: number): Promise<void>;
+  };
+  drafts: {
+    list(): Promise<TransactionDraft[]>;
+    save(input: TransactionDraftInput): Promise<TransactionDraft>;
     remove(id: number): Promise<void>;
   };
   budgets: {

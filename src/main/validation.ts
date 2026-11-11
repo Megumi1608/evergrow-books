@@ -16,6 +16,7 @@ import {
   type TxFilter,
   type TxInput,
   type TxKind,
+  type TransactionDraftInput,
 } from '../shared/types';
 import {
   THEME_COLOR_KEYS,
@@ -23,6 +24,7 @@ import {
   type ThemeColors,
   type ThemeSettings,
 } from '../shared/theme';
+import { parseContainerCounts, splitContainerNos } from '../shared/containers';
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const MONTH_RE = /^\d{4}-\d{2}$/;
@@ -163,6 +165,14 @@ export function validateTxInput(value: unknown): TxInput {
     serviceRevenue = input.serviceRevenue;
   }
 
+  const containerNo = text(input.containerNo, 'Số container', 400);
+  const containerSize = text(input.containerSize, 'Kích thước container', 80);
+  const counts = parseContainerCounts(containerSize);
+  const declaredContainers = counts.count20 + counts.count40;
+  if (declaredContainers > 0 && splitContainerNos(containerNo).length > declaredContainers) {
+    fail(`Số container đã nhập vượt quá tổng số lượng container (${declaredContainers}).`);
+  }
+
   return {
     kind: kindValue,
     amount,
@@ -175,8 +185,8 @@ export function validateTxInput(value: unknown): TxInput {
     port: text(input.port, 'Cửa khẩu', 80),
     goodsName: text(input.goodsName, 'Tên hàng', 160),
     goodsType: text(input.goodsType, 'Loại hàng', 80),
-    containerNo: text(input.containerNo, 'Số container', 80),
-    containerSize: text(input.containerSize, 'Kích thước container', 80),
+    containerNo,
+    containerSize,
     carrier: text(input.carrier, 'Đơn vị vận chuyển', 120),
     warehouseAddress: text(input.warehouseAddress, 'Địa chỉ kho', 200),
     serviceRevenue,
@@ -189,8 +199,27 @@ export function validateTxInput(value: unknown): TxInput {
   };
 }
 
-export function validatePaymentRequest(value: unknown): PaymentRequestInput {
-  const input = asRecord(value, 'Dữ liệu yêu cầu thanh toán');
+export function validateDraftInput(value: unknown): TransactionDraftInput {
+  const input = asRecord(value, 'Dữ liệu nháp');
+  const id = input.id === undefined || input.id === null ? undefined : validateId(input.id, 'Nháp');
+  const label = text(input.label, 'Tên nháp', 160);
+  if (typeof input.step !== 'number' || !Number.isInteger(input.step) || input.step < 0 || input.step > 9) {
+    fail('Bước nháp không hợp lệ.');
+  }
+  if (!input.payload || typeof input.payload !== 'object' || Array.isArray(input.payload)) {
+    fail('Dữ liệu nháp không hợp lệ.');
+  }
+  let payloadJson = '';
+  try {
+    payloadJson = JSON.stringify(input.payload) ?? '';
+  } catch {
+    fail('Dữ liệu nháp không hợp lệ.');
+  }
+  if (payloadJson.length > 512 * 1024) fail('Dữ liệu nháp quá lớn.');
+  return { id, label, step: input.step, payload: input.payload };
+}
+
+export function validatePaymentRequest(value: unknown): PaymentRequestInput {  const input = asRecord(value, 'Dữ liệu yêu cầu thanh toán');
   const money = (raw: unknown, label: string): number => {
     if (typeof raw !== 'number' || !Number.isFinite(raw) || raw < 0 || raw > MAX_AMOUNT) {
       fail(`${label} không hợp lệ.`);

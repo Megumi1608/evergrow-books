@@ -56,6 +56,11 @@ const api: EvergrowApi = {
     open: (id) => ipcRenderer.invoke('attachments:open', id),
     remove: (id) => ipcRenderer.invoke('attachments:remove', id),
   },
+  drafts: {
+    list: () => ipcRenderer.invoke('draft:list'),
+    save: (input) => ipcRenderer.invoke('draft:save', input),
+    remove: (id) => ipcRenderer.invoke('draft:delete', id),
+  },
   budgets: {
     get: (month) => ipcRenderer.invoke('budgets:get', month),
     save: (input) => ipcRenderer.invoke('budgets:save', input),

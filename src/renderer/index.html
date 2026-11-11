@@ -8,9 +8,177 @@
     />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Evergrow Books</title>
+    <style>
+      html {
+        height: 100%;
+        background: #f5f4f0;
+      }
+      body {
+        height: 100%;
+        margin: 0;
+      }
+      .splash {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: var(--splash-bg, #f5f4f0);
+        color: var(--splash-ink, #1c1c19);
+        font-family: 'Be Vietnam Pro', system-ui, -apple-system, sans-serif;
+        -webkit-font-smoothing: antialiased;
+        transition:
+          opacity 0.25s ease,
+          visibility 0.25s ease;
+      }
+      .splash.is-done {
+        opacity: 0;
+        visibility: hidden;
+      }
+      .splash-inner {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 17px;
+        animation: splash-in 0.3s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+      }
+      .splash-logo {
+        width: 40px;
+        height: auto;
+        filter: var(--splash-logo-filter, none);
+      }
+      .splash-brand {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 5px;
+      }
+      .splash-name {
+        font-size: 12.5px;
+        font-weight: 600;
+        letter-spacing: 0.22em;
+      }
+      .splash-sub {
+        font-size: 8px;
+        font-weight: 500;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        opacity: 0.55;
+      }
+      .splash-bar {
+        position: relative;
+        width: 132px;
+        height: 2px;
+        border-radius: 999px;
+        overflow: hidden;
+        background: color-mix(in srgb, var(--splash-ink, #1c1c19) 12%, transparent);
+      }
+      .splash-bar::after {
+        content: '';
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: -45%;
+        width: 45%;
+        border-radius: inherit;
+        background: var(--splash-accent, #1e5b45);
+        animation: splash-slide 1.05s cubic-bezier(0.55, 0.1, 0.45, 0.9) infinite;
+      }
+      @keyframes splash-slide {
+        to {
+          left: 100%;
+        }
+      }
+      @keyframes splash-in {
+        from {
+          opacity: 0;
+          transform: translateY(8px) scale(0.985);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0) scale(1);
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .splash-inner {
+          animation: none;
+        }
+        .splash-bar::after {
+          animation: none;
+          left: 0;
+          width: 100%;
+          opacity: 0.5;
+        }
+      }
+    </style>
   </head>
   <body>
+    <div id="splash" class="splash" aria-hidden="true">
+      <div class="splash-inner">
+        <img class="splash-logo" src="./logo-leaf.png" alt="" />
+        <div class="splash-brand">
+          <span class="splash-name">EVERGROW</span>
+          <span class="splash-sub">Sổ thu chi doanh nghiệp</span>
+        </div>
+        <div class="splash-bar"></div>
+      </div>
+    </div>
     <div id="root"></div>
+    <script>
+      (function () {
+        var started = Date.now();
+        var root = document.documentElement;
+        var splash = document.getElementById('splash');
+        var rootEl = document.getElementById('root');
+
+        try {
+          var saved = JSON.parse(localStorage.getItem('evergrow.theme.v1') || 'null');
+          var colors = saved && saved.colors;
+          if (
+            colors &&
+            /^#[0-9a-fA-F]{6}$/.test(colors.bg || '') &&
+            /^#[0-9a-fA-F]{6}$/.test(colors.ink || '')
+          ) {
+            root.style.setProperty('--splash-bg', colors.bg);
+            root.style.setProperty('--splash-ink', colors.ink);
+            root.style.setProperty('--splash-accent', colors.income || '#1e5b45');
+            root.style.background = colors.bg;
+            var rgb = [1, 3, 5].map(function (offset) {
+              return parseInt(colors.bg.slice(offset, offset + 2), 16);
+            });
+            var dark = 0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2] < 140;
+            if (dark) {
+              root.style.setProperty('--splash-logo-filter', 'grayscale(1) brightness(0) invert(1)');
+            }
+          }
+        } catch (error) {
+          /* theme cache unavailable */
+        }
+
+        var hide = function () {
+          if (!splash || splash.classList.contains('is-done')) return;
+          var wait = Math.max(0, 650 - (Date.now() - started));
+          setTimeout(function () {
+            splash.classList.add('is-done');
+            setTimeout(function () {
+              splash.remove();
+            }, 280);
+          }, wait);
+        };
+
+        if (rootEl && rootEl.childElementCount > 0) {
+          hide();
+        } else if (rootEl) {
+          var observer = new MutationObserver(function () {
+            if (rootEl.childElementCount === 0) return;
+            observer.disconnect();
+            hide();
+          });
+          observer.observe(rootEl, { childList: true });
+        }
+      })();
+    </script>
     <script type="module" src="/main.tsx"></script>
   </body>
 </html>

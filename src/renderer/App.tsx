@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ThemeSettings } from '../shared/theme';
-import type { AppMeta, Transaction, UpdateState } from '../shared/types';
+import type { AppMeta, Transaction, TransactionDraft, UpdateState } from '../shared/types';
 import { AppContext } from './context';
 import { api, getErrorMessage } from './api';
 import { applyTheme, cacheTheme, readCachedTheme } from './theme';
@@ -8,7 +8,7 @@ import { useHashRoute, type Route } from './hooks';
 import { useToast } from './components/toast';
 import { Sidebar } from './components/Sidebar';
 import { AiBubble } from './components/AiBubble';
-import { TransactionModal } from './components/TransactionModal';
+import { TransactionDraftPicker, TransactionModal } from './components/TransactionModal';
 import { DashboardPage } from './pages/Dashboard';
 import { TransactionsPage } from './pages/Transactions';
 import { ShipmentsPage } from './pages/Shipments';
@@ -37,7 +37,11 @@ function Shell({ route }: { route: Route }) {
   const [revision, setRevision] = useState(0);
   const [updateState, setUpdateState] = useState<UpdateState>({ status: 'idle' });
   const [sidebarCollapsed, setSidebarCollapsed] = useState(readSidebarState);
-  const [modal, setModal] = useState<{ transaction: Transaction | null } | null>(null);
+  const [modal, setModal] = useState<{
+    transaction: Transaction | null;
+    draft?: TransactionDraft | null;
+  } | null>(null);
+  const [draftPicker, setDraftPicker] = useState<TransactionDraft[] | null>(null);
   const mainRef = useRef<HTMLElement>(null);
 
   const toggleSidebar = useCallback(() => {
@@ -54,8 +58,23 @@ function Shell({ route }: { route: Route }) {
 
   const bump = useCallback(() => setRevision((value) => value + 1), []);
   const openTransaction = useCallback(
-    (transaction?: Transaction) => setModal({ transaction: transaction ?? null }),
-    [],
+    (transaction?: Transaction) => {
+      if (transaction) {
+        setModal({ transaction });
+        return;
+      }
+      api.drafts
+        .list()
+        .then((list) => {
+          if (list.length > 0) setDraftPicker(list);
+          else setModal({ transaction: null });
+        })
+        .catch((error) => {
+          toast(getErrorMessage(error), 'error');
+          setModal({ transaction: null });
+        });
+    },
+    [toast],
   );
   const reloadSettings = useCallback(async () => {
     const settings = await api.settings.get();
@@ -154,9 +173,28 @@ function Shell({ route }: { route: Route }) {
         </main>
       </div>
       <AiBubble />
+      {draftPicker ? (
+        <TransactionDraftPicker
+          drafts={draftPicker}
+          onClose={() => setDraftPicker(null)}
+          onCreate={() => {
+            setDraftPicker(null);
+            setModal({ transaction: null });
+          }}
+          onResume={(draft) => {
+            setDraftPicker(null);
+            setModal({ transaction: null, draft });
+          }}
+          onDelete={async (draft) => {
+            await api.drafts.remove(draft.id);
+            setDraftPicker((current) => current?.filter((item) => item.id !== draft.id) ?? null);
+          }}
+        />
+      ) : null}
       {modal ? (
         <TransactionModal
           transaction={modal.transaction}
+          draft={modal.draft ?? null}
           onClose={() => {
             setModal(null);
             bump();
