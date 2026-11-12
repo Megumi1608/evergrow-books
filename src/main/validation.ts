@@ -165,6 +165,16 @@ export function validateTxInput(value: unknown): TxInput {
     serviceRevenue = input.serviceRevenue;
   }
 
+  const extraMoney = (raw: unknown, label: string): number => {
+    if (raw === undefined) return 0;
+    if (typeof raw !== 'number' || !Number.isInteger(raw) || raw < 0) fail(`${label} không hợp lệ.`);
+    return raw;
+  };
+  const customerFar = extraMoney(input.customerFar, 'Phụ thu hạ xa khách hàng');
+  const otherIncome = extraMoney(input.otherIncome, 'Phí khác thu khách');
+  const customerLift = extraMoney(input.customerLift, 'Phí nâng khách hàng');
+  const customerLower = extraMoney(input.customerLower, 'Phí hạ khách hàng');
+
   const containerNo = text(input.containerNo, 'Số container', 400);
   const containerSize = text(input.containerSize, 'Kích thước container', 80);
   const counts = parseContainerCounts(containerSize);
@@ -190,6 +200,10 @@ export function validateTxInput(value: unknown): TxInput {
     carrier: text(input.carrier, 'Đơn vị vận chuyển', 120),
     warehouseAddress: text(input.warehouseAddress, 'Địa chỉ kho', 200),
     serviceRevenue,
+    customerFar,
+    otherIncome,
+    customerLift,
+    customerLower,
     details: details(input.details),
     dueDate,
     paidAmount,

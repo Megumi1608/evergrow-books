@@ -97,6 +97,10 @@ interface RawTxRow {
   carrier: string;
   warehouseAddress: string;
   serviceRevenue: number;
+  customerFar: number;
+  otherIncome: number;
+  customerLift: number;
+  customerLower: number;
   detailsJson: string;
   dueDate: string;
   paidAmount: number;
@@ -125,6 +129,10 @@ export interface ImportTransactionRow {
   containerSize: string;
   carrier: string;
   serviceRevenue: number;
+  customerFar?: number;
+  otherIncome?: number;
+  customerLift?: number;
+  customerLower?: number;
   details: Record<string, number>;
   dueDate: string;
   paidAmount: number;
@@ -141,7 +149,10 @@ const TX_SELECT = `
          t.goods_name AS goodsName, t.goods_type AS goodsType,
          t.container_no AS containerNo, t.container_size AS containerSize,
          t.carrier, t.warehouse_address AS warehouseAddress,
-         t.service_revenue AS serviceRevenue, t.details_json AS detailsJson,
+         t.service_revenue AS serviceRevenue,
+         t.customer_far AS customerFar, t.other_income AS otherIncome,
+         t.customer_lift AS customerLift, t.customer_lower AS customerLower,
+         t.details_json AS detailsJson,
          t.due_date AS dueDate, t.paid_amount AS paidAmount, t.currency,
          t.original_amount AS originalAmount, t.exchange_rate AS exchangeRate,
          t.import_batch_id AS importBatchId,
@@ -272,6 +283,10 @@ export class Store {
         carrier TEXT NOT NULL DEFAULT '',
         warehouse_address TEXT NOT NULL DEFAULT '',
         service_revenue INTEGER NOT NULL DEFAULT 0,
+        customer_far INTEGER NOT NULL DEFAULT 0,
+        other_income INTEGER NOT NULL DEFAULT 0,
+        customer_lift INTEGER NOT NULL DEFAULT 0,
+        customer_lower INTEGER NOT NULL DEFAULT 0,
         details_json TEXT NOT NULL DEFAULT '{}',
         source_key TEXT,
         due_date TEXT NOT NULL DEFAULT '',
@@ -429,6 +444,10 @@ export class Store {
       ['carrier', "carrier TEXT NOT NULL DEFAULT ''"],
       ['warehouse_address', "warehouse_address TEXT NOT NULL DEFAULT ''"],
       ['service_revenue', 'service_revenue INTEGER NOT NULL DEFAULT 0'],
+      ['customer_far', 'customer_far INTEGER NOT NULL DEFAULT 0'],
+      ['other_income', 'other_income INTEGER NOT NULL DEFAULT 0'],
+      ['customer_lift', 'customer_lift INTEGER NOT NULL DEFAULT 0'],
+      ['customer_lower', 'customer_lower INTEGER NOT NULL DEFAULT 0'],
       ['details_json', "details_json TEXT NOT NULL DEFAULT '{}'"],
       ['source_key', 'source_key TEXT'],
       ['due_date', "due_date TEXT NOT NULL DEFAULT ''"],
@@ -440,8 +459,18 @@ export class Store {
     ];
     const addedPaid = !columns.has('paid_amount');
     const addedCurrency = !columns.has('currency');
+    const addedCustomerLift = !columns.has('customer_lift');
+    const addedCustomerLower = !columns.has('customer_lower');
     for (const [name, definition] of additions) {
       if (!columns.has(name)) db.exec(`ALTER TABLE transactions ADD COLUMN ${definition}`);
+    }
+    if (addedCustomerLift || addedCustomerLower) {
+      db.exec(`
+        UPDATE transactions SET
+          customer_lift = COALESCE(json_extract(details_json, '$."Phí nâng"'), 0),
+          customer_lower = COALESCE(json_extract(details_json, '$."Phí hạ"'), 0)
+        WHERE details_json IS NOT NULL AND details_json <> ''
+      `);
     }
     if (addedPaid) {
       db.exec("UPDATE transactions SET paid_amount = amount WHERE due_date = '' OR due_date IS NULL");
@@ -638,9 +667,10 @@ export class Store {
         `INSERT INTO transactions
            (kind, amount, occurred_on, category_id, party, note, method,
             reference, port, goods_name, goods_type, container_no, container_size, carrier,
-            warehouse_address, service_revenue, details_json,
+            warehouse_address, service_revenue, customer_far, other_income, customer_lift,
+            customer_lower, details_json,
             due_date, paid_amount, currency, original_amount, exchange_rate)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         input.kind,
@@ -659,6 +689,10 @@ export class Store {
         input.carrier,
         input.warehouseAddress,
         input.serviceRevenue,
+        input.customerFar,
+        input.otherIncome,
+        input.customerLift,
+        input.customerLower,
         JSON.stringify(input.details),
         input.dueDate,
         input.paidAmount,
@@ -678,7 +712,9 @@ export class Store {
         `UPDATE transactions
          SET kind = ?, amount = ?, occurred_on = ?, category_id = ?, party = ?, note = ?, method = ?,
              reference = ?, port = ?, goods_name = ?, goods_type = ?, container_no = ?,
-             container_size = ?, carrier = ?, warehouse_address = ?, service_revenue = ?, details_json = ?,
+             container_size = ?, carrier = ?, warehouse_address = ?, service_revenue = ?,
+             customer_far = ?, other_income = ?, customer_lift = ?, customer_lower = ?,
+             details_json = ?,
              due_date = ?, paid_amount = ?, currency = ?, original_amount = ?, exchange_rate = ?,
              updated_at = datetime('now')
          WHERE id = ?`,
@@ -700,6 +736,10 @@ export class Store {
         input.carrier,
         input.warehouseAddress,
         input.serviceRevenue,
+        input.customerFar,
+        input.otherIncome,
+        input.customerLift,
+        input.customerLower,
         JSON.stringify(input.details),
         input.dueDate,
         input.paidAmount,
@@ -1959,6 +1999,10 @@ export class Store {
       'carrier',
       'warehouse_address',
       'service_revenue',
+      'customer_far',
+      'other_income',
+      'customer_lift',
+      'customer_lower',
       'details_json',
       'source_key',
       'due_date',
@@ -1975,7 +2019,21 @@ export class Store {
         `INSERT INTO transactions (${columns.join(', ')})
          VALUES (${columns.map(() => '?').join(', ')})`,
       )
-      .run(...columns.map((column) => row[column] ?? (column === 'service_revenue' ? 0 : null)));
+      .run(
+        ...columns.map(
+          (column) =>
+            row[column] ??
+            ([
+              'service_revenue',
+              'customer_far',
+              'other_income',
+              'customer_lift',
+              'customer_lower',
+            ].includes(column)
+              ? 0
+              : null),
+        ),
+      );
   }
 
   resetAll(): void {

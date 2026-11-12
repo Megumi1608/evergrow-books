@@ -67,6 +67,10 @@ export interface Transaction {
   carrier: string;
   warehouseAddress: string;
   serviceRevenue: number;
+  customerFar: number;
+  otherIncome: number;
+  customerLift: number;
+  customerLower: number;
   details: Record<string, number>;
   dueDate: string;
   paidAmount: number;
@@ -95,6 +99,10 @@ export interface TxInput {
   carrier: string;
   warehouseAddress: string;
   serviceRevenue: number;
+  customerFar: number;
+  otherIncome: number;
+  customerLift: number;
+  customerLower: number;
   details: Record<string, number>;
   dueDate: string;
   paidAmount: number;
