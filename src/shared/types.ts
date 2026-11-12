@@ -47,6 +47,11 @@ export interface CategoryInput {
   color: string;
 }
 
+export interface CustomerFee {
+  label: string;
+  amount: number;
+}
+
 export interface Transaction {
   id: number;
   kind: TxKind;
@@ -71,6 +76,7 @@ export interface Transaction {
   otherIncome: number;
   customerLift: number;
   customerLower: number;
+  customerFees: CustomerFee[];
   details: Record<string, number>;
   dueDate: string;
   paidAmount: number;
@@ -103,6 +109,7 @@ export interface TxInput {
   otherIncome: number;
   customerLift: number;
   customerLower: number;
+  customerFees: CustomerFee[];
   details: Record<string, number>;
   dueDate: string;
   paidAmount: number;

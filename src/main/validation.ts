@@ -8,6 +8,7 @@ import {
   type CategoryInput,
   type CompanySettings,
   type Currency,
+  type CustomerFee,
   type ImportCommitOptions,
   type LookupKind,
   type Method,
@@ -99,8 +100,33 @@ function color(value: unknown): string {
   return value.toUpperCase();
 }
 
-function details(value: unknown): Record<string, number> {
-  if (value === undefined || value === null) return {};
+function customerFeeList(value: unknown): CustomerFee[] {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value) || value.length > 30) fail('Danh sách khoản thu khách không hợp lệ.');
+  const seen = new Set<string>();
+  const fees: CustomerFee[] = [];
+  for (const item of value) {
+    const record = asRecord(item, 'Khoản thu khách');
+    const label = text(record.label, 'Tên khoản thu', 60);
+    const amount = record.amount;
+    if (
+      typeof amount !== 'number' ||
+      !Number.isInteger(amount) ||
+      amount < 0 ||
+      amount > MAX_AMOUNT
+    ) {
+      fail('Số tiền khoản thu khách không hợp lệ.');
+    }
+    if (!label || amount <= 0) continue;
+    const key = label.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    fees.push({ label, amount });
+  }
+  return fees;
+}
+
+function details(value: unknown): Record<string, number> {  if (value === undefined || value === null) return {};
   const input = asRecord(value, 'Chi tiết phí');
   const entries = Object.entries(input);
   if (entries.length > 30) fail('Chi tiết phí có quá nhiều mục.');
@@ -204,6 +230,7 @@ export function validateTxInput(value: unknown): TxInput {
     otherIncome,
     customerLift,
     customerLower,
+    customerFees: customerFeeList(input.customerFees),
     details: details(input.details),
     dueDate,
     paidAmount,

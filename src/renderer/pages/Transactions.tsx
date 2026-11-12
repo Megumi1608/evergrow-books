@@ -565,6 +565,7 @@ function transactionInput(transaction: Transaction, details: Record<string, numb
     otherIncome: transaction.otherIncome,
     customerLift: transaction.customerLift,
     customerLower: transaction.customerLower,
+    customerFees: transaction.customerFees,
     details,
     dueDate: transaction.dueDate,
     paidAmount: transaction.paidAmount,

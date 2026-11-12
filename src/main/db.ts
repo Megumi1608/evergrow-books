@@ -21,6 +21,7 @@ import type {
   CategoryInput,
   CategoryTotal,
   CompanySettings,
+  CustomerFee,
   DashboardData,
   DataStats,
   DebtData,
@@ -101,6 +102,7 @@ interface RawTxRow {
   otherIncome: number;
   customerLift: number;
   customerLower: number;
+  customerFeesJson: string;
   detailsJson: string;
   dueDate: string;
   paidAmount: number;
@@ -152,6 +154,7 @@ const TX_SELECT = `
          t.service_revenue AS serviceRevenue,
          t.customer_far AS customerFar, t.other_income AS otherIncome,
          t.customer_lift AS customerLift, t.customer_lower AS customerLower,
+         t.customer_fees_json AS customerFeesJson,
          t.details_json AS detailsJson,
          t.due_date AS dueDate, t.paid_amount AS paidAmount, t.currency,
          t.original_amount AS originalAmount, t.exchange_rate AS exchangeRate,
@@ -287,6 +290,7 @@ export class Store {
         other_income INTEGER NOT NULL DEFAULT 0,
         customer_lift INTEGER NOT NULL DEFAULT 0,
         customer_lower INTEGER NOT NULL DEFAULT 0,
+        customer_fees_json TEXT NOT NULL DEFAULT '[]',
         details_json TEXT NOT NULL DEFAULT '{}',
         source_key TEXT,
         due_date TEXT NOT NULL DEFAULT '',
@@ -448,6 +452,7 @@ export class Store {
       ['other_income', 'other_income INTEGER NOT NULL DEFAULT 0'],
       ['customer_lift', 'customer_lift INTEGER NOT NULL DEFAULT 0'],
       ['customer_lower', 'customer_lower INTEGER NOT NULL DEFAULT 0'],
+      ['customer_fees_json', "customer_fees_json TEXT NOT NULL DEFAULT '[]'"],
       ['details_json', "details_json TEXT NOT NULL DEFAULT '{}'"],
       ['source_key', 'source_key TEXT'],
       ['due_date', "due_date TEXT NOT NULL DEFAULT ''"],
@@ -495,7 +500,7 @@ export class Store {
   }
 
   private toTransaction(row: unknown): Transaction {
-    const { detailsJson, ...rest } = row as RawTxRow;
+    const { detailsJson, customerFeesJson, ...rest } = row as RawTxRow;
     let details: Record<string, number> = {};
     try {
       const parsed = JSON.parse(detailsJson || '{}') as unknown;
@@ -507,7 +512,24 @@ export class Store {
     } catch {
       details = {};
     }
-    return { ...rest, details };
+    let customerFees: CustomerFee[] = [];
+    try {
+      const parsed = JSON.parse(customerFeesJson || '[]') as unknown;
+      if (Array.isArray(parsed)) {
+        customerFees = parsed
+          .filter(
+            (item): item is { label: string; amount: number } =>
+              Boolean(item) &&
+              typeof item === 'object' &&
+              typeof (item as { label?: unknown }).label === 'string' &&
+              typeof (item as { amount?: unknown }).amount === 'number',
+          )
+          .map((item) => ({ label: item.label, amount: item.amount }));
+      }
+    } catch {
+      customerFees = [];
+    }
+    return { ...rest, details, customerFees };
   }
 
   private categoryById(id: number): Category | undefined {
@@ -668,9 +690,9 @@ export class Store {
            (kind, amount, occurred_on, category_id, party, note, method,
             reference, port, goods_name, goods_type, container_no, container_size, carrier,
             warehouse_address, service_revenue, customer_far, other_income, customer_lift,
-            customer_lower, details_json,
+            customer_lower, customer_fees_json, details_json,
             due_date, paid_amount, currency, original_amount, exchange_rate)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         input.kind,
@@ -693,6 +715,7 @@ export class Store {
         input.otherIncome,
         input.customerLift,
         input.customerLower,
+        JSON.stringify(input.customerFees ?? []),
         JSON.stringify(input.details),
         input.dueDate,
         input.paidAmount,
@@ -714,7 +737,7 @@ export class Store {
              reference = ?, port = ?, goods_name = ?, goods_type = ?, container_no = ?,
              container_size = ?, carrier = ?, warehouse_address = ?, service_revenue = ?,
              customer_far = ?, other_income = ?, customer_lift = ?, customer_lower = ?,
-             details_json = ?,
+             customer_fees_json = ?, details_json = ?,
              due_date = ?, paid_amount = ?, currency = ?, original_amount = ?, exchange_rate = ?,
              updated_at = datetime('now')
          WHERE id = ?`,
@@ -740,6 +763,7 @@ export class Store {
         input.otherIncome,
         input.customerLift,
         input.customerLower,
+        JSON.stringify(input.customerFees ?? []),
         JSON.stringify(input.details),
         input.dueDate,
         input.paidAmount,
@@ -2003,6 +2027,7 @@ export class Store {
       'other_income',
       'customer_lift',
       'customer_lower',
+      'customer_fees_json',
       'details_json',
       'source_key',
       'due_date',
@@ -2023,15 +2048,17 @@ export class Store {
         ...columns.map(
           (column) =>
             row[column] ??
-            ([
-              'service_revenue',
-              'customer_far',
-              'other_income',
-              'customer_lift',
-              'customer_lower',
-            ].includes(column)
-              ? 0
-              : null),
+            (column === 'customer_fees_json'
+              ? '[]'
+              : [
+                  'service_revenue',
+                  'customer_far',
+                  'other_income',
+                  'customer_lift',
+                  'customer_lower',
+                ].includes(column)
+                ? 0
+                : null),
         ),
       );
   }

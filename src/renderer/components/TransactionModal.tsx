@@ -96,6 +96,7 @@ interface DeclarationDraft {
   customerLowerText: string;
   customerFarText: string;
   otherIncomeText: string;
+  customerFeeRows: FeeRow[];
   serviceFeeDirty: boolean;
 }
 
@@ -231,6 +232,12 @@ function initialDeclaration(transaction: Transaction | null): DeclarationDraft {
     customerLowerText: transaction?.customerLower ? formatNumber(transaction.customerLower) : '',
     customerFarText: transaction?.customerFar ? formatNumber(transaction.customerFar) : '',
     otherIncomeText: transaction?.otherIncome ? formatNumber(transaction.otherIncome) : '',
+    customerFeeRows: transaction
+      ? transaction.customerFees.map((fee) => ({
+          label: fee.label,
+          text: fee.amount ? formatNumber(fee.amount) : '',
+        }))
+      : [],
     serviceFeeDirty: !transaction,
   };
 }
@@ -369,8 +376,13 @@ function readDraftSnapshot(draft: TransactionDraft): DraftSnapshot | null {
   const incomeData = data.income as Partial<IncomeDraft>;
   return {
     version: 1,
-    decl: { ...baseDecl, ...data.decl },
-    expense: {
+    decl: {
+      ...baseDecl,
+      ...data.decl,
+      customerFeeRows: Array.isArray(data.decl.customerFeeRows)
+        ? data.decl.customerFeeRows
+        : [],
+    },    expense: {
       ...baseExpense,
       ...expenseData,
       costs: { ...baseExpense.costs, ...expenseData.costs },
@@ -575,14 +587,8 @@ export function TransactionModal({
   const handlingFee = liftFee + lowerFee;
   const transportFee = handlingFee + farFee + botFee;
   const totalExpense =
-    serviceFee +
-    handlingFee +
-    farFee +
-    botFee +
-    customsFee +
-    discountFee +
-    otherFee +
-    extraCostTotal;
+    serviceFee + handlingFee + farFee + botFee + otherFee + extraCostTotal;
+  const profitDeductions = customsFee + discountFee;
   const computedExpenseAmount = Math.max(0, Math.round(totalExpense));
   const savedExpenseAmount = transaction?.kind === 'expense' ? transaction.amount : undefined;
   const expenseAmount =
@@ -602,9 +608,18 @@ export function TransactionModal({
   const customerHandling = customerLift + customerLower;
   const customerFar = parseAmount(decl.customerFarText);
   const otherIncome = parseAmount(decl.otherIncomeText);
+  const customIncomeTotal = decl.customerFeeRows.reduce(
+    (sum, row) => (row.label.trim() ? sum + parseAmount(row.text) : sum),
+    0,
+  );
   const totalIncome =
-    serviceRevenue + serviceVat + customerHandling + customerFar + otherIncome;
-  const profit = totalIncome - totalExpense;
+    serviceRevenue +
+    serviceVat +
+    customerHandling +
+    customerFar +
+    otherIncome +
+    customIncomeTotal;
+  const profit = totalIncome - totalExpense - profitDeductions;
   const showRevenueSummary = !transaction || transaction.kind === 'expense';
   const draftBaseline = useMemo(
     () =>
@@ -655,13 +670,58 @@ export function TransactionModal({
 
   const updateExpenseCost = (key: ExpenseCostKey, raw: string) => {
     const parsed = parseAmount(raw);
+    const text = parsed > 0 ? formatNumber(parsed) : '';
     setExpense((current) => ({
       ...current,
       costs: {
         ...current.costs,
-        [key]: parsed > 0 ? formatNumber(parsed) : '',
+        [key]: text,
       },
       amountDirty: true,
+    }));
+    if (key === 'lift' || key === 'lower') {
+      setDecl((current) => ({
+        ...current,
+        [key === 'lift' ? 'customerLiftText' : 'customerLowerText']: text,
+      }));
+    }
+  };
+
+  const updateCustomerHandling = (key: 'lift' | 'lower', raw: string) => {
+    const parsed = parseAmount(raw);
+    const text = parsed > 0 ? formatNumber(parsed) : '';
+    setDecl((current) => ({
+      ...current,
+      [key === 'lift' ? 'customerLiftText' : 'customerLowerText']: text,
+    }));
+    setExpense((current) => ({
+      ...current,
+      costs: { ...current.costs, [key]: text },
+      amountDirty: true,
+    }));
+  };
+
+  const updateCustomerFeeRow = (index: number, patch: Partial<FeeRow>) => {
+    setDecl((current) => ({
+      ...current,
+      customerFeeRows: current.customerFeeRows.map((row, position) =>
+        position === index ? { ...row, ...patch } : row,
+      ),
+    }));
+  };
+
+  const addCustomerFeeRow = () => {
+    setDecl((current) =>
+      current.customerFeeRows.length >= 30
+        ? current
+        : { ...current, customerFeeRows: [...current.customerFeeRows, { label: '', text: '' }] },
+    );
+  };
+
+  const removeCustomerFeeRow = (index: number) => {
+    setDecl((current) => ({
+      ...current,
+      customerFeeRows: current.customerFeeRows.filter((_, position) => position !== index),
     }));
   };
 
@@ -838,6 +898,9 @@ export function TransactionModal({
     }
     const today = todayIso();
     const inputs: TxInput[] = [];
+    const customerFees = decl.customerFeeRows
+      .map((row) => ({ label: row.label.trim().slice(0, 60), amount: parseAmount(row.text) }))
+      .filter((fee) => fee.label && fee.amount > 0);
 
     if (expense.enabled) {
       if (expense.occurredOn > today) {
@@ -899,6 +962,7 @@ export function TransactionModal({
         otherIncome,
         customerLift,
         customerLower,
+        customerFees,
         details,
         dueDate: expense.debt.track ? expense.debt.dueDate : '',
         paidAmount: expense.debt.track
@@ -958,6 +1022,7 @@ export function TransactionModal({
         otherIncome,
         customerLift,
         customerLower,
+        customerFees,
         details,
         dueDate: income.debt.track ? income.debt.dueDate : '',
         paidAmount: income.debt.track
@@ -1418,13 +1483,7 @@ export function TransactionModal({
                           inputMode="numeric"
                           value={decl.customerLiftText}
                           placeholder="0"
-                          onChange={(event) => {
-                            const parsed = parseAmount(event.target.value);
-                            setDecl((current) => ({
-                              ...current,
-                              customerLiftText: parsed > 0 ? formatNumber(parsed) : '',
-                            }));
-                          }}
+                          onChange={(event) => updateCustomerHandling('lift', event.target.value)}
                         />
                         <span className="amount-suffix">đ</span>
                       </span>
@@ -1437,18 +1496,15 @@ export function TransactionModal({
                           inputMode="numeric"
                           value={decl.customerLowerText}
                           placeholder="0"
-                          onChange={(event) => {
-                            const parsed = parseAmount(event.target.value);
-                            setDecl((current) => ({
-                              ...current,
-                              customerLowerText: parsed > 0 ? formatNumber(parsed) : '',
-                            }));
-                          }}
+                          onChange={(event) => updateCustomerHandling('lower', event.target.value)}
                         />
                         <span className="amount-suffix">đ</span>
                       </span>
                     </label>
                   </div>
+                  <p className="hint no-pad">
+                    Phí nâng/hạ thu khách tự đồng bộ với phí nâng/hạ ở bước Chi phí.
+                  </p>
                   <div className="form-row">
                     <label className="field">
                       <span className="field-label">Phụ thu hạ xa khách hàng</span>
@@ -1489,6 +1545,71 @@ export function TransactionModal({
                       </span>
                     </label>
                   </div>
+                  <div className="detail-list">
+                    <div className="detail-list-head">
+                      <span className="field-label">Khoản thu khách khác</span>
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-sm"
+                        onClick={addCustomerFeeRow}
+                        disabled={decl.customerFeeRows.length >= 30}
+                      >
+                        <Plus size={13} />
+                        Thêm khoản thu
+                      </button>
+                    </div>
+                    {decl.customerFeeRows.length === 0 ? (
+                      <p className="hint no-pad">
+                        Chưa có khoản thu khác. Các khoản thêm ở đây chỉ cộng vào thu nhập, không tạo
+                        chi phí tương ứng.
+                      </p>
+                    ) : (
+                      <div className="fee-edit-rows">
+                        <div className="fee-edit-head" aria-hidden="true">
+                          <span>Tên khoản thu</span>
+                          <span>Số tiền</span>
+                          <span />
+                        </div>
+                        {decl.customerFeeRows.map((row, index) => (
+                          <div className="fee-edit-row" key={index}>
+                            <input
+                              className="input"
+                              value={row.label}
+                              maxLength={60}
+                              placeholder="Tên khoản thu (VD: Phí nâng)"
+                              onChange={(event) =>
+                                updateCustomerFeeRow(index, { label: event.target.value })
+                              }
+                            />
+                            <span className="amount-wrap">
+                              <input
+                                className="input"
+                                inputMode="numeric"
+                                placeholder="0"
+                                value={row.text}
+                                onChange={(event) => {
+                                  const parsed = parseAmount(event.target.value);
+                                  updateCustomerFeeRow(index, {
+                                    text: parsed > 0 ? formatNumber(parsed) : '',
+                                  });
+                                }}
+                              />
+                              <span className="amount-suffix">đ</span>
+                            </span>
+                            <button
+                              type="button"
+                              className="icon-btn sm danger"
+                              aria-label="Xoá khoản thu khách"
+                              title="Xoá khoản thu khách"
+                              onClick={() => removeCustomerFeeRow(index)}
+                            >
+                              <Trash size={13} />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                   <div className="expense-calc">
                     <div className="expense-calc-row">
                       <span>{serviceRevenueLabel}</span>
@@ -1513,6 +1634,10 @@ export function TransactionModal({
                     <div className="expense-calc-row">
                       <span>Phí khác (thu khách)</span>
                       <strong>{formatVnd(otherIncome)}</strong>
+                    </div>
+                    <div className="expense-calc-row">
+                      <span>Khoản thu khách khác</span>
+                      <strong>{formatVnd(customIncomeTotal)}</strong>
                     </div>
                     <div className="expense-calc-total">
                       <span>Tổng thu nhập</span>
@@ -1750,10 +1875,6 @@ export function TransactionModal({
                     {expenseCostField('far')}
                     {expenseCostField('bot')}
                   </div>
-                  <div className="form-row">
-                    {expenseCostField('customs')}
-                    {expenseCostField('discount')}
-                  </div>
                   <div className="form-row">{expenseCostField('other')}</div>
                   <div className="detail-list">
                     <div className="detail-list-head">
@@ -1829,14 +1950,6 @@ export function TransactionModal({
                     <div className="expense-calc-row">
                       <span>Phụ thu hạ xa + qua bot</span>
                       <strong>{formatVnd(farFee + botFee)}</strong>
-                    </div>
-                    <div className="expense-calc-row">
-                      <span>Phí hải quan</span>
-                      <strong>{formatVnd(customsFee)}</strong>
-                    </div>
-                    <div className="expense-calc-row">
-                      <span>Chiết khấu</span>
-                      <strong>{formatVnd(discountFee)}</strong>
                     </div>
                     <div className="expense-calc-row">
                       <span>Khác</span>
@@ -2210,6 +2323,10 @@ export function TransactionModal({
                 <span className="field-label">Lợi nhuận lô hàng</span>
                 <span className="form-section-hint">Tổng thu nhập − tổng chi phí</span>
               </div>
+              <div className="form-row">
+                {expenseCostField('customs')}
+                {expenseCostField('discount')}
+              </div>
               <div className="expense-calc">
                 <div className="expense-calc-row">
                   <span>{serviceRevenueLabel}</span>
@@ -2236,12 +2353,24 @@ export function TransactionModal({
                   <strong>{formatVnd(otherIncome)}</strong>
                 </div>
                 <div className="expense-calc-row">
+                  <span>Khoản thu khách khác</span>
+                  <strong>{formatVnd(customIncomeTotal)}</strong>
+                </div>
+                <div className="expense-calc-row">
                   <span>Tổng thu nhập</span>
                   <strong>{formatVnd(totalIncome)}</strong>
                 </div>
                 <div className="expense-calc-row">
                   <span>Tổng chi phí tiền xe</span>
                   <strong>{formatVnd(totalExpense)}</strong>
+                </div>
+                <div className="expense-calc-row">
+                  <span>Phí hải quan (trừ lợi nhuận)</span>
+                  <strong>{formatVnd(customsFee)}</strong>
+                </div>
+                <div className="expense-calc-row">
+                  <span>Chiết khấu (trừ lợi nhuận)</span>
+                  <strong>{formatVnd(discountFee)}</strong>
                 </div>
                 <div className="expense-calc-total">
                   <span>Lợi nhuận</span>
@@ -2251,9 +2380,9 @@ export function TransactionModal({
                 </div>
               </div>
               <p className="hint no-pad">
-                Tổng thu nhập = phí dịch vụ + VAT 8% + nâng/hạ + phụ thu hạ xa + phí khác. Tổng chi
-                phí tiền xe = cost + VAT + nâng + hạ + hạ xa + bot + hải quan + chiết khấu + khác +
-                phát sinh.
+                Tổng thu nhập = phí dịch vụ + VAT 8% + nâng/hạ khách + phụ thu hạ xa + phí khác +
+                khoản thu khác. Tổng chi phí tiền xe = cost + VAT + nâng + hạ + hạ xa + bot + khác +
+                phát sinh. Lợi nhuận trừ thêm phí hải quan và chiết khấu.
               </p>
               <p className="hint no-pad">
                 Giao dịch chi phí sẽ lưu vào sổ: {formatVnd(expenseAmount)}.
