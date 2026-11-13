@@ -832,7 +832,7 @@ input:focus-visible {
 
 .kpi-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 14px;
   margin-bottom: 16px;
 }
@@ -1487,6 +1487,45 @@ input:focus-visible {
   font-size: 11px;
   color: var(--muted);
   white-space: nowrap;
+}
+
+.tx-money {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  font-size: 9.5px;
+  line-height: 1.35;
+}
+
+.tx-money-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.tx-money-row em {
+  font-style: normal;
+  font-size: 8px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.tx-money-row b {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.tx-money-row b.income {
+  color: var(--income);
+}
+
+.tx-money-row b.expense {
+  color: var(--expense);
 }
 
 .row-actions-head {

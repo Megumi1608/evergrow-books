@@ -133,6 +133,8 @@ export interface TxPage {
   total: number;
   income: number;
   expense: number;
+  deductions: number;
+  profit: number;
 }
 
 export interface MonthPoint {
@@ -152,6 +154,7 @@ export interface DashboardData {
   month: string;
   income: number;
   expense: number;
+  deductions: number;
   net: number;
   count: number;
   prevIncome: number;

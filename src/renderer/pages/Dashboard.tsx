@@ -4,6 +4,7 @@ import {
   ArrowRight,
   ChevronLeft,
   ChevronRight,
+  Percent,
   Plus,
   Receipt,
   Sparkles,
@@ -131,11 +132,18 @@ export function DashboardPage() {
           foot={`${percentChange(data?.expense ?? 0, data?.prevExpense ?? 0)} so với tháng trước`}
         />
         <StatCard
-          label="Chênh lệch"
+          label="Hải quan & chiết khấu"
+          value={formatVnd(data?.deductions ?? 0)}
+          tone="warning"
+          icon={<Percent size={16} />}
+          foot="Trừ vào lợi nhuận"
+        />
+        <StatCard
+          label="Lợi nhuận"
           value={formatSignedVnd(data?.net ?? 0)}
           tone={(data?.net ?? 0) >= 0 ? 'warning' : 'expense'}
           icon={<Wallet size={16} />}
-          foot="Thu nhập trừ chi phí"
+          foot="Sau hải quan & chiết khấu"
         />
         <StatCard
           label="Số giao dịch"

@@ -293,8 +293,12 @@ export function TransactionsPage() {
           <strong className="expense">{formatNumber(data?.expense ?? 0)} đ</strong>
         </div>
         <div>
-          <span>Chênh lệch</span>
-          <strong>{formatSignedVnd((data?.income ?? 0) - (data?.expense ?? 0))}</strong>
+          <span>Hải quan &amp; chiết khấu</span>
+          <strong>{formatNumber(data?.deductions ?? 0)} đ</strong>
+        </div>
+        <div>
+          <span>Lợi nhuận</span>
+          <strong>{formatSignedVnd(data?.profit ?? 0)}</strong>
         </div>
       </div>
 
@@ -394,7 +398,7 @@ export function TransactionsPage() {
                   <th>Số tờ khai</th>
                   <th>Container</th>
                   <th>Hình thức</th>
-                  <th className="num">Số tiền</th>
+                  <th className="num">Thu / Chi / HQ-CK / LN</th>
                   <th className="row-actions-head" aria-label="Thao tác" />
                 </tr>
               </thead>
@@ -426,9 +430,43 @@ export function TransactionsPage() {
                           {[transaction.containerNo, transaction.containerSize].filter(Boolean).join(' · ') || '—'}
                         </td>
                         <td className="method-cell">{METHOD_LABELS[transaction.method]}</td>
-                        <td className={`num amount ${transaction.kind === 'income' ? 'income' : 'expense'}`}>
-                          {transaction.kind === 'income' ? '+' : '−'}
-                          {formatNumber(transaction.amount)} đ
+                        <td className="num money-cell">
+                          {(() => {
+                            const money = transactionMoney(transaction);
+                            return (
+                              <div
+                                className="tx-money"
+                                title="LN = thu − chi − hải quan − chiết khấu"
+                              >
+                                <span className="tx-money-row">
+                                  <em>Thu</em>
+                                  <b className="income">
+                                    {money.income > 0 ? `+${formatNumber(money.income)} đ` : '0 đ'}
+                                  </b>
+                                </span>
+                                <span className="tx-money-row">
+                                  <em>Chi</em>
+                                  <b className={money.expense > 0 ? 'expense' : ''}>
+                                    {money.expense > 0 ? `−${formatNumber(money.expense)} đ` : '0 đ'}
+                                  </b>
+                                </span>
+                                <span className="tx-money-row">
+                                  <em>HQ/CK</em>
+                                  <b className={money.deductions > 0 ? 'expense' : ''}>
+                                    {money.deductions > 0
+                                      ? `−${formatNumber(money.deductions)} đ`
+                                      : '0 đ'}
+                                  </b>
+                                </span>
+                                <span className="tx-money-row">
+                                  <em>LN</em>
+                                  <b className={money.profit >= 0 ? 'income' : 'expense'}>
+                                    {formatSignedVnd(money.profit)}
+                                  </b>
+                                </span>
+                              </div>
+                            );
+                          })()}
                         </td>
                         <td className="row-actions">
                           <button
@@ -543,8 +581,54 @@ export function TransactionsPage() {
   );
 }
 
-function transactionInput(transaction: Transaction, details: Record<string, number>): TxInput {
+function normalizedDetail(details: Record<string, number>, aliases: string[]): number {
+  for (const [label, value] of Object.entries(details)) {
+    const normalized = label
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/đ/g, 'd')
+      .replace(/Đ/g, 'D')
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, '');
+    if (aliases.includes(normalized)) return value;
+  }
+  return 0;
+}
+
+function transactionMoney(transaction: Transaction): {
+  income: number;
+  expense: number;
+  deductions: number;
+  profit: number;
+} {
+  if (transaction.kind === 'income') {
+    return {
+      income: transaction.amount,
+      expense: 0,
+      deductions: 0,
+      profit: transaction.amount,
+    };
+  }
+  const revenue =
+    transaction.serviceRevenue +
+    Math.round(transaction.serviceRevenue * 0.08) +
+    transaction.customerLift +
+    transaction.customerLower +
+    transaction.customerFar +
+    transaction.otherIncome +
+    transaction.customerFees.reduce((sum, fee) => sum + fee.amount, 0);
+  const deductions =
+    normalizedDetail(transaction.details, ['phihaiquan', 'haiquan']) +
+    normalizedDetail(transaction.details, ['chietkhau']);
   return {
+    income: revenue,
+    expense: transaction.amount,
+    deductions,
+    profit: revenue - transaction.amount - deductions,
+  };
+}
+
+function transactionInput(transaction: Transaction, details: Record<string, number>): TxInput {  return {
     kind: transaction.kind,
     amount: transaction.amount,
     occurredOn: transaction.occurredOn,

@@ -144,9 +144,23 @@ export interface ImportTransactionRow {
   sourceKey: string;
 }
 
+const SHIPMENT_REVENUE_SQL = `(CASE WHEN t.kind = 'expense' THEN
+  t.service_revenue
+  + CAST(ROUND(t.service_revenue * 0.08) AS INTEGER)
+  + t.customer_lift + t.customer_lower + t.customer_far + t.other_income
+  + COALESCE((
+      SELECT SUM(CAST(json_extract(fee.value, '$.amount') AS INTEGER))
+      FROM json_each(t.customer_fees_json) AS fee
+    ), 0)
+ELSE 0 END)`;
+
+const PROFIT_DEDUCTIONS_SQL = `(CASE WHEN t.kind = 'expense' THEN
+  COALESCE(json_extract(t.details_json, '$."Phí hải quan"'), 0)
+  + COALESCE(json_extract(t.details_json, '$."Chiết khấu"'), 0)
+ELSE 0 END)`;
+
 const TX_SELECT = `
-  SELECT t.id, t.kind, t.amount, t.occurred_on AS occurredOn,
-         t.category_id AS categoryId, c.name AS categoryName, c.color AS categoryColor,
+  SELECT t.id, t.kind, t.amount, t.occurred_on AS occurredOn,         t.category_id AS categoryId, c.name AS categoryName, c.color AS categoryColor,
          t.party, t.note, t.method, t.reference, t.port,
          t.goods_name AS goodsName, t.goods_type AS goodsType,
          t.container_no AS containerNo, t.container_size AS containerSize,
@@ -644,11 +658,13 @@ export class Store {
     const totals = this.db
       .prepare(
         `SELECT COUNT(*) AS total,
-                COALESCE(SUM(CASE WHEN t.kind = 'income' THEN t.amount ELSE 0 END), 0) AS income,
-                COALESCE(SUM(CASE WHEN t.kind = 'expense' THEN t.amount ELSE 0 END), 0) AS expense
+                COALESCE(SUM(CASE WHEN t.kind = 'income' THEN t.amount ELSE 0 END), 0)
+                  + COALESCE(SUM(${SHIPMENT_REVENUE_SQL}), 0) AS income,
+                COALESCE(SUM(CASE WHEN t.kind = 'expense' THEN t.amount ELSE 0 END), 0) AS expense,
+                COALESCE(SUM(${PROFIT_DEDUCTIONS_SQL}), 0) AS deductions
          FROM transactions t ${clause}`,
       )
-      .get(...params) as { total: number; income: number; expense: number };
+      .get(...params) as { total: number; income: number; expense: number; deductions: number };
     const limit = filter.limit ?? 50;
     const offset = filter.offset ?? 0;
     const rows = this.db
@@ -659,6 +675,8 @@ export class Store {
       total: totals.total,
       income: totals.income,
       expense: totals.expense,
+      deductions: totals.deductions,
+      profit: totals.income - totals.expense - totals.deductions,
     };
   }
 
@@ -1301,18 +1319,36 @@ export class Store {
     return this.getBudgets(month);
   }
 
-  private summary(from: string, to: string): { income: number; expense: number; count: number } {
+  private summary(
+    from: string,
+    to: string,
+    includeShipmentRevenue = false,
+  ): { income: number; expense: number; count: number; deductions: number } {
+    const incomeExpression = includeShipmentRevenue
+      ? `COALESCE(SUM(CASE WHEN t.kind = 'income' THEN t.amount ELSE 0 END), 0)
+         + COALESCE(SUM(${SHIPMENT_REVENUE_SQL}), 0)`
+      : "COALESCE(SUM(CASE WHEN t.kind = 'income' THEN t.amount ELSE 0 END), 0)";
     return this.db
       .prepare(
-        `SELECT COALESCE(SUM(CASE WHEN kind = 'income' THEN amount ELSE 0 END), 0) AS income,
-                COALESCE(SUM(CASE WHEN kind = 'expense' THEN amount ELSE 0 END), 0) AS expense,
+        `SELECT ${incomeExpression} AS income,
+                COALESCE(SUM(CASE WHEN t.kind = 'expense' THEN t.amount ELSE 0 END), 0) AS expense,
+                COALESCE(SUM(${PROFIT_DEDUCTIONS_SQL}), 0) AS deductions,
                 COUNT(*) AS count
-         FROM transactions WHERE occurred_on BETWEEN ? AND ?`,
+         FROM transactions t WHERE t.occurred_on BETWEEN ? AND ?`,
       )
-      .get(from, to) as { income: number; expense: number; count: number };
+      .get(from, to) as {
+      income: number;
+      expense: number;
+      count: number;
+      deductions: number;
+    };
   }
 
-  private monthlySeries(fromMonth: string, toMonth: string): MonthPoint[] {
+  private monthlySeries(
+    fromMonth: string,
+    toMonth: string,
+    includeShipmentRevenue = false,
+  ): MonthPoint[] {
     const months: string[] = [];
     let cursor = fromMonth;
     while (cursor <= toMonth && months.length < 240) {
@@ -1321,31 +1357,36 @@ export class Store {
     }
     const { from } = monthBounds(fromMonth);
     const { to } = monthBounds(toMonth);
+    const incomeExpression = includeShipmentRevenue
+      ? `COALESCE(SUM(CASE WHEN t.kind = 'income' THEN t.amount ELSE 0 END), 0)
+         + COALESCE(SUM(${SHIPMENT_REVENUE_SQL}), 0)`
+      : "COALESCE(SUM(CASE WHEN t.kind = 'income' THEN t.amount ELSE 0 END), 0)";
     const rows = this.db
       .prepare(
-        `SELECT substr(occurred_on, 1, 7) AS month, kind,
-                COALESCE(SUM(amount), 0) AS total
-         FROM transactions
-         WHERE occurred_on BETWEEN ? AND ?
-         GROUP BY month, kind`,
+        `SELECT substr(t.occurred_on, 1, 7) AS month,
+                ${incomeExpression} AS income,
+                COALESCE(SUM(CASE WHEN t.kind = 'expense' THEN t.amount ELSE 0 END), 0) AS expense
+         FROM transactions t
+         WHERE t.occurred_on BETWEEN ? AND ?
+         GROUP BY month`,
       )
-      .all(from, to) as unknown as { month: string; kind: TxKind; total: number }[];
+      .all(from, to) as unknown as { month: string; income: number; expense: number }[];
     const map = new Map(months.map((month) => [month, { month, income: 0, expense: 0 }]));
     for (const row of rows) {
       const point = map.get(row.month);
       if (!point) continue;
-      if (row.kind === 'income') point.income = row.total;
-      else point.expense = row.total;
+      point.income = row.income;
+      point.expense = row.expense;
     }
     return [...map.values()];
   }
 
   dashboard(month: string): DashboardData {
     const { from, to } = monthBounds(month);
-    const current = this.summary(from, to);
+    const current = this.summary(from, to, true);
     const prevMonth = shiftMonth(month, -1);
     const prevBounds = monthBounds(prevMonth);
-    const prev = this.summary(prevBounds.from, prevBounds.to);
+    const prev = this.summary(prevBounds.from, prevBounds.to, true);
     const topExpense = this.db
       .prepare(
         `SELECT c.name, c.color, SUM(t.amount) AS total, COUNT(*) AS count
@@ -1361,11 +1402,12 @@ export class Store {
       month,
       income: current.income,
       expense: current.expense,
-      net: current.income - current.expense,
+      deductions: current.deductions,
+      net: current.income - current.expense - current.deductions,
       count: current.count,
       prevIncome: prev.income,
       prevExpense: prev.expense,
-      series: this.monthlySeries(shiftMonth(month, -5), month),
+      series: this.monthlySeries(shiftMonth(month, -5), month, true),
       topExpense,
       recent: recentRows.map((row) => this.toTransaction(row)),
     };
