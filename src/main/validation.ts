@@ -18,6 +18,7 @@ import {
   type TxInput,
   type TxKind,
   type TransactionDraftInput,
+  type VoucherExportInput,
 } from '../shared/types';
 import {
   THEME_COLOR_KEYS,
@@ -258,6 +259,18 @@ export function validateDraftInput(value: unknown): TransactionDraftInput {
   }
   if (payloadJson.length > 512 * 1024) fail('Dữ liệu nháp quá lớn.');
   return { id, label, step: input.step, payload: input.payload };
+}
+
+export function validateVoucherExportInput(value: unknown): VoucherExportInput {
+  const input = asRecord(value, 'Dữ liệu xuất phiếu');
+  if (!Array.isArray(input.ids) || input.ids.length === 0 || input.ids.length > 200) {
+    fail('Chọn từ 1 đến 200 giao dịch để xuất.');
+  }
+  const ids = [...new Set(input.ids.map((id) => validateId(id, 'Giao dịch')))];
+  if (input.type !== 'cost' && input.type !== 'payment') {
+    fail('Loại phiếu xuất không hợp lệ.');
+  }
+  return { ids, type: input.type };
 }
 
 export function validatePaymentRequest(value: unknown): PaymentRequestInput {  const input = asRecord(value, 'Dữ liệu yêu cầu thanh toán');

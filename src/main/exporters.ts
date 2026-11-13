@@ -1,8 +1,9 @@
 import ExcelJS from 'exceljs';
-import type { Transaction, TxKind } from '../shared/types';
+import type { Transaction, TxKind, VoucherExportType } from '../shared/types';
 import { METHOD_LABELS } from '../shared/types';
 import { formatDate, todayIso } from '../shared/dates';
-import { formatDecimal, formatNumber } from '../shared/format';
+import { amountInWords, formatDecimal, formatNumber } from '../shared/format';
+import { parseContainerCounts } from '../shared/containers';
 import { LOGO_LOCKUP } from '../shared/brand';
 
 const KIND_LABEL: Record<TxKind, string> = { income: 'Thu nhập', expense: 'Chi phí' };
@@ -504,6 +505,413 @@ export async function writeXlsx(file: string, rows: Transaction[], options: Xlsx
   createDetailSheet(workbook, 'income', incomeRows, options);
   createDetailSheet(workbook, 'expense', expenseRows, options);
 
+  await workbook.xlsx.writeFile(file);
+}
+
+const VOUCHER_FONT = 'Times New Roman';
+const VOUCHER_COMPANY = 'CÔNG TY TNHH THƯƠNG MẠI EVERGROW VIỆT NAM';
+const VOUCHER_SIGNER = 'NGÔ ĐỨC TUẤN';
+const VOUCHER_BANK = {
+  name: 'Ngân hàng Thương mại Cổ phần Á Châu',
+  account: '40466868',
+  holder: VOUCHER_COMPANY,
+  branch: 'ACB – Chi nhánh Sài Gòn',
+};
+const VOUCHER_TITLES: Record<VoucherExportType, string> = {
+  cost: 'BẢNG KÊ CHI PHÍ',
+  payment: 'PHIẾU YÊU CẦU THANH TOÁN',
+};
+const TABLE_BORDER = {
+  top: { style: 'thin' as const, color: { argb: 'FF000000' } },
+  left: { style: 'thin' as const, color: { argb: 'FF000000' } },
+  bottom: { style: 'thin' as const, color: { argb: 'FF000000' } },
+  right: { style: 'thin' as const, color: { argb: 'FF000000' } },
+};
+
+interface VoucherItem {
+  name: string;
+  sl: number | '';
+  amount: number | '';
+  vat: number | '';
+  total: number;
+}
+
+function voucherItem(name: string, amount: number): VoucherItem {
+  return { name, sl: '', amount, vat: '', total: amount };
+}
+
+function voucherGroups(transaction: Transaction): { title: string; items: VoucherItem[] }[] {
+  const paid: VoucherItem[] = [];
+  if (transaction.customerLift > 0) paid.push(voucherItem('Phí nâng Cont', transaction.customerLift));
+  if (transaction.customerLower > 0) paid.push(voucherItem('Phí hạ Cont', transaction.customerLower));
+  for (const fee of transaction.customerFees) {
+    if (fee.amount > 0) paid.push(voucherItem(fee.label, fee.amount));
+  }
+
+  const other: VoucherItem[] = [];
+  if (transaction.customerFar > 0) other.push(voucherItem('Phụ thu hạ xa', transaction.customerFar));
+  if (transaction.otherIncome > 0) other.push(voucherItem('Phí khác', transaction.otherIncome));
+
+  const service: VoucherItem[] = [];
+  const counts = parseContainerCounts(transaction.containerSize);
+  const containerCount = counts.count20 + counts.count40;
+  const base = transaction.serviceRevenue;
+  if (base > 0) {
+    service.push({
+      name: `Phí dịch vụ ${transaction.containerSize || 'container'}`.trim(),
+      sl: containerCount || '',
+      amount: base,
+      vat: '',
+      total: base,
+    });
+    const vat = Math.round(base * 0.08);
+    if (vat > 0) {
+      service.push({ name: 'VAT (8%)', sl: '', amount: '', vat, total: vat });
+    }
+  }
+
+  return [
+    { title: '1. PHÍ CHI HỘ', items: paid },
+    { title: '2. PHÍ KHÁC', items: other },
+    { title: '3. PHÍ DỊCH VỤ KHAI THUÊ VÀ GIAO NHẬN', items: service },
+  ];
+}
+
+function voucherSheetName(transaction: Transaction, index: number, used: Set<string>): string {
+  let base = (transaction.reference || `Lo ${index + 1}`).replace(/[\\/*?:[\]]/g, ' ').trim();
+  if (!base) base = `Lo ${index + 1}`;
+  base = base.slice(0, 31);
+  let name = base;
+  let suffix = 2;
+  while (used.has(name)) {
+    name = `${base.slice(0, 28)} ${suffix}`;
+    suffix += 1;
+  }
+  used.add(name);
+  return name;
+}
+
+function addVoucherSheet(
+  workbook: ExcelJS.Workbook,
+  transaction: Transaction,
+  type: VoucherExportType,
+  index: number,
+  usedNames: Set<string>,
+): void {
+  const sheet = workbook.addWorksheet(voucherSheetName(transaction, index, usedNames));
+  sheet.pageSetup = {
+    paperSize: 9,
+    orientation: 'portrait',
+    fitToPage: true,
+    fitToWidth: 1,
+    fitToHeight: 0,
+    margins: { left: 0.5, right: 0.5, top: 0.6, bottom: 0.6, header: 0.3, footer: 0.3 },
+  };
+  sheet.columns = [
+    { width: 4.66 },
+    { width: 8.89 },
+    { width: 8.11 },
+    { width: 9.11 },
+    { width: 6.66 },
+    { width: 5.33 },
+    { width: 10.55 },
+    { width: 7.66 },
+    { width: 7.66 },
+    { width: 8.89 },
+    { width: 12.55 },
+  ];
+
+  const setCell = (
+    row: number,
+    col: number,
+    value: string | number,
+    options: {
+      bold?: boolean;
+      underline?: boolean;
+      size?: number;
+      align?: 'left' | 'center' | 'right';
+      wrap?: boolean;
+      border?: boolean;
+      numberFormat?: string;
+    } = {},
+  ) => {
+    const cell = sheet.getCell(row, col);
+    cell.value = value;
+    cell.font = {
+      name: VOUCHER_FONT,
+      size: options.size ?? 11,
+      bold: options.bold ?? false,
+      underline: options.underline ?? false,
+    };
+    cell.alignment = {
+      vertical: 'middle',
+      horizontal: options.align ?? 'left',
+      wrapText: options.wrap ?? true,
+    };
+    cell.border = options.border ? TABLE_BORDER : {};
+    if (options.numberFormat) cell.numFmt = options.numberFormat;
+    return cell;
+  };
+
+  const merged = (
+    range: string,
+    row: number,
+    col: number,
+    value: string | number,
+    options: Parameters<typeof setCell>[3] = {},
+  ) => {
+    sheet.mergeCells(range);
+    setCell(row, col, value, options);
+  };
+
+  merged('A1:E3', 1, 1, VOUCHER_COMPANY, { bold: true, align: 'center' });
+  merged('G1:K3', 1, 7, 'CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM\nĐộc lập – Tự do – Hạnh phúc', {
+    bold: true,
+    align: 'center',
+  });
+
+  merged('A4:E4', 4, 1, `Số: ${transaction.reference ? `${transaction.reference}/EGVN` : '—'}`, {
+    bold: true,
+    size: 10,
+  });
+  const now = new Date();
+  merged(
+    'G4:K4',
+    4,
+    7,
+    `Tp.HCM, ngày ${now.getDate()} tháng ${now.getMonth() + 1} năm ${now.getFullYear()}`,
+    { align: 'right', size: 10 },
+  );
+
+  merged('A6:K6', 6, 1, VOUCHER_TITLES[type], { bold: true, align: 'center' });
+  sheet.getRow(6).height = 24;
+  merged('A7:J7', 7, 1, '', {});
+  merged('A8:K8', 8, 1, `Kính gửi: ${transaction.party || 'Quý Công ty'}`, { bold: true });
+
+  const containers =
+    transaction.containerSize ||
+    [transaction.containerNo].filter(Boolean).join(', ') ||
+    '—';
+  const goods =
+    [transaction.goodsType, transaction.goodsName].filter(Boolean).join(': ') || '—';
+  merged(
+    'B10:K14',
+    10,
+    2,
+    `Được sự ủy nhiệm của Quý Công ty, ${VOUCHER_COMPANY} thực hiện nhiệm vụ làm thủ tục ` +
+      `khai thuê hải quan và giao nhận hàng hóa lô hàng ${containers}. Hàng ${goods}. ` +
+      `Theo tờ khai số ${transaction.reference || '—'} ngày ${formatDate(transaction.occurredOn)} ` +
+      `từ Cảng ${transaction.port || '—'} về kho của Quý Công ty tại ` +
+      `${transaction.warehouseAddress || '—'}.`,
+    {},
+  );
+  for (let line = 10; line <= 14; line += 1) sheet.getRow(line).height = 15;
+  merged(
+    'B15:K15',
+    15,
+    2,
+    'Nay Cty EVERGROW VIỆT NAM báo đến Quý Công ty các chi phí phát sinh như sau:',
+    {},
+  );
+
+  const groups = voucherGroups(transaction);
+  let row = 17;
+  let grandTotal = 0;
+
+  const headerCells = (
+    labels: [string, number, string][],
+    headerRow: number,
+    withCount: boolean,
+  ) => {
+    for (const [label, col, range] of labels) {
+      if (range) merged(range, headerRow, col, label, { bold: true, align: 'center', border: true });
+      else setCell(headerRow, col, label, { bold: true, align: 'center', border: true });
+    }
+    if (withCount) {
+      setCell(headerRow, 4, 'SL', { bold: true, align: 'center', border: true });
+    }
+  };
+
+  const sectionTitle = (title: string) => {
+    merged(`A${row}:K${row}`, row, 1, title, { bold: true });
+    row += 1;
+  };
+
+  const sectionHeader12 = () => {
+    headerCells(
+      [
+        ['STT', 1, ''],
+        ['NỘI DUNG', 2, `B${row}:D${row}`],
+        ['SỐ TIỀN', 5, `E${row}:F${row}`],
+        ['VAT (8%)', 7, ''],
+        ['THÀNH TIỀN', 8, `H${row}:I${row}`],
+        ['GHI CHÚ', 10, `J${row}:K${row}`],
+      ],
+      row,
+      false,
+    );
+    row += 1;
+  };
+
+  const sectionHeader3 = () => {
+    headerCells(
+      [
+        ['STT', 1, ''],
+        ['NỘI DUNG', 2, `B${row}:C${row}`],
+        ['SL', 4, ''],
+        ['SỐ TIỀN', 5, `E${row}:G${row}`],
+        ['THÀNH TIỀN', 8, `H${row}:I${row}`],
+        ['GHI CHÚ', 10, `J${row}:K${row}`],
+      ],
+      row,
+      false,
+    );
+    row += 1;
+  };
+
+  const simpleSection = (title: string, items: VoucherItem[]) => {
+    sectionTitle(title);
+    sectionHeader12();
+    const total = items.reduce((sum, item) => sum + item.total, 0);
+    if (items.length === 0) {
+      merged(`B${row}:K${row}`, row, 2, '—', { align: 'center', border: true });
+      row += 1;
+    } else {
+      items.forEach((item, itemIndex) => {
+        setCell(row, 1, itemIndex + 1, { align: 'center', border: true });
+        merged(`B${row}:D${row}`, row, 2, item.name, { border: true });
+        merged(`E${row}:F${row}`, row, 5, item.amount, {
+          align: 'right',
+          border: true,
+          numberFormat: '#,##0',
+        });
+        setCell(row, 7, item.vat, { align: 'right', border: true, numberFormat: '#,##0' });
+        merged(`H${row}:I${row}`, row, 8, item.total, {
+          align: 'right',
+          border: true,
+          numberFormat: '#,##0',
+        });
+        merged(`J${row}:K${row}`, row, 10, '', { border: true });
+        row += 1;
+      });
+    }
+    setCell(row, 1, '', { border: true });
+    merged(`B${row}:D${row}`, row, 2, 'CỘNG', { bold: true, align: 'center', border: true });
+    merged(`E${row}:F${row}`, row, 5, '', { border: true });
+    setCell(row, 7, '', { border: true });
+    merged(`H${row}:I${row}`, row, 8, total, {
+      bold: true,
+      align: 'right',
+      border: true,
+      numberFormat: '#,##0',
+    });
+    merged(`J${row}:K${row}`, row, 10, '', { border: true });
+    grandTotal += total;
+    row += 2;
+  };
+
+  simpleSection(groups[0].title, groups[0].items);
+  simpleSection(groups[1].title, groups[1].items);
+
+  sectionTitle(groups[2].title);
+  sectionHeader3();
+  let serviceTotal = 0;
+  if (groups[2].items.length === 0) {
+    merged(`B${row}:K${row}`, row, 2, '—', { align: 'center', border: true });
+    row += 1;
+  } else {
+    groups[2].items.forEach((item, itemIndex) => {
+      setCell(row, 1, itemIndex + 1, { align: 'center', border: true });
+      merged(`B${row}:C${row}`, row, 2, item.name, { border: true });
+      setCell(row, 4, item.sl, { align: 'center', border: true });
+      merged(`E${row}:G${row}`, row, 5, item.amount, {
+        align: 'right',
+        border: true,
+        numberFormat: '#,##0',
+      });
+      merged(`H${row}:I${row}`, row, 8, item.total, {
+        align: 'right',
+        border: true,
+        numberFormat: '#,##0',
+      });
+      merged(`J${row}:K${row}`, row, 10, '', { border: true });
+      serviceTotal += item.total;
+      row += 1;
+    });
+  }
+  setCell(row, 1, '', { border: true });
+  merged(`B${row}:D${row}`, row, 2, 'CỘNG', { bold: true, align: 'center', border: true });
+  merged(`E${row}:G${row}`, row, 5, '', { border: true });
+  merged(`H${row}:I${row}`, row, 8, serviceTotal, {
+    bold: true,
+    align: 'right',
+    border: true,
+    numberFormat: '#,##0',
+  });
+  merged(`J${row}:K${row}`, row, 10, '', { border: true });
+  grandTotal += serviceTotal;
+  row += 2;
+
+  merged(`A${row}:G${row}`, row, 1, 'TỔNG CỘNG (1+2+3)', { bold: true, border: true });
+  merged(`H${row}:I${row}`, row, 8, grandTotal, {
+    bold: true,
+    align: 'right',
+    border: true,
+    numberFormat: '#,##0',
+  });
+  merged(`J${row}:K${row}`, row, 10, '', { border: true });
+  row += 1;
+
+  merged(`A${row}:K${row}`, row, 1, `(Bằng tiền: ${amountInWords(grandTotal)}./.)`, {});
+  row += 2;
+
+  const paymentRow = row;
+  merged(`A${paymentRow}:F${paymentRow}`, paymentRow, 1, 'THANH TOÁN', {
+    bold: true,
+    underline: true,
+  });
+  merged(`H${paymentRow}:K${paymentRow + 1}`, paymentRow, 8, VOUCHER_COMPANY, {
+    bold: true,
+    align: 'center',
+  });
+
+  const bankRow = paymentRow + 2;
+  merged(`A${bankRow}:B${bankRow}`, bankRow, 1, 'Tên Ngân hàng', {});
+  setCell(bankRow, 3, ':');
+  setCell(bankRow, 4, VOUCHER_BANK.name);
+  merged(`I${bankRow}:J${bankRow}`, bankRow, 9, '', {});
+
+  setCell(bankRow + 1, 1, 'Số Tài khoản');
+  setCell(bankRow + 1, 3, ':');
+  merged(`D${bankRow + 1}:H${bankRow + 1}`, bankRow + 1, 4, VOUCHER_BANK.account, {});
+
+  merged(`A${bankRow + 2}:B${bankRow + 3}`, bankRow + 2, 1, 'Tên Tài khoản', {});
+  merged(`C${bankRow + 2}:C${bankRow + 3}`, bankRow + 2, 3, ':');
+  merged(`D${bankRow + 2}:H${bankRow + 3}`, bankRow + 2, 4, VOUCHER_BANK.holder, {});
+
+  const branchRow = bankRow + 4;
+  merged(`A${branchRow}:B${branchRow}`, branchRow, 1, 'Chi nhánh', {});
+  setCell(branchRow, 3, ':');
+  merged(`D${branchRow}:G${branchRow}`, branchRow, 4, VOUCHER_BANK.branch, {});
+  merged(`H${branchRow}:K${branchRow}`, branchRow, 8, '', {});
+
+  merged(`H${branchRow + 1}:K${branchRow + 1}`, branchRow + 1, 8, VOUCHER_SIGNER, {
+    align: 'center',
+  });
+}
+
+export async function writeVoucherXlsx(
+  file: string,
+  rows: Transaction[],
+  type: VoucherExportType,
+): Promise<void> {
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = 'Evergrow Books';
+  workbook.created = new Date();
+  const usedNames = new Set<string>();
+  rows.forEach((transaction, index) => {
+    addVoucherSheet(workbook, transaction, type, index, usedNames);
+  });
   await workbook.xlsx.writeFile(file);
 }
 

@@ -54,3 +54,49 @@ export function percentChange(current: number, previous: number): string {
   const sign = change > 0 ? '+' : '';
   return `${sign}${change.toLocaleString('vi-VN', { maximumFractionDigits: 1 })}%`;
 }
+
+const DIGITS = ['không', 'một', 'hai', 'ba', 'bốn', 'năm', 'sáu', 'bảy', 'tám', 'chín'];
+
+function readGroup(group: number, hasHigher: boolean): string {
+  const hundred = Math.floor(group / 100);
+  const ten = Math.floor((group % 100) / 10);
+  const unit = group % 10;
+  const parts: string[] = [];
+  if (hundred > 0 || hasHigher) parts.push(`${DIGITS[hundred]} trăm`);
+  if (ten > 1) {
+    parts.push(`${DIGITS[ten]} mươi`);
+    if (unit === 1) parts.push('mốt');
+    else if (unit === 5) parts.push('lăm');
+    else if (unit > 0) parts.push(DIGITS[unit]);
+  } else if (ten === 1) {
+    parts.push('mười');
+    if (unit === 5) parts.push('lăm');
+    else if (unit > 0) parts.push(DIGITS[unit]);
+  } else if (unit > 0) {
+    if (hundred > 0 || hasHigher) parts.push('lẻ');
+    parts.push(DIGITS[unit]);
+  }
+  return parts.join(' ');
+}
+
+export function amountInWords(value: number): string {
+  const amount = Math.round(value);
+  if (!Number.isFinite(amount) || amount <= 0) return 'Không đồng';
+  const groups: number[] = [];
+  let rest = amount;
+  while (rest > 0) {
+    groups.push(rest % 1000);
+    rest = Math.floor(rest / 1000);
+  }
+  const scales = ['', 'nghìn', 'triệu', 'tỷ', 'nghìn tỷ', 'triệu tỷ', 'tỷ tỷ'];
+  let words = '';
+  for (let index = groups.length - 1; index >= 0; index -= 1) {
+    const group = groups[index];
+    if (group === 0) continue;
+    const hasHigher = words.length > 0;
+    const read = readGroup(group, hasHigher);
+    words += `${words ? ' ' : ''}${read}${scales[index] ? ` ${scales[index]}` : ''}`;
+  }
+  const result = `${words} đồng`;
+  return `${result.charAt(0).toUpperCase()}${result.slice(1)}`;
+}

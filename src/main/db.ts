@@ -702,6 +702,15 @@ export class Store {
     return rows.map((row) => this.toTransaction(row));
   }
 
+  transactionsByIds(ids: number[]): Transaction[] {
+    if (ids.length === 0) return [];
+    const placeholders = ids.map(() => '?').join(', ');
+    const rows = this.db
+      .prepare(`${TX_SELECT} WHERE t.id IN (${placeholders}) ORDER BY t.occurred_on ASC, t.id ASC`)
+      .all(...ids) as unknown[];
+    return rows.map((row) => this.toTransaction(row));
+  }
+
   private getTransaction(id: number): Transaction | undefined {
     const row = this.db.prepare(`${TX_SELECT} WHERE t.id = ?`).get(id);
     return row ? this.toTransaction(row) : undefined;

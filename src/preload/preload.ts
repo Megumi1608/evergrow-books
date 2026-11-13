@@ -31,6 +31,9 @@ const api: EvergrowApi = {
   },
   report: (range) => ipcRenderer.invoke('report:get', range),
   exportFile: (format, filter) => ipcRenderer.invoke(`export:${format}`, filter),
+  vouchers: {
+    export: (input) => ipcRenderer.invoke('voucher:export', input),
+  },
   paymentRequest: {
     export: (input) => ipcRenderer.invoke('payment:export', input),
   },

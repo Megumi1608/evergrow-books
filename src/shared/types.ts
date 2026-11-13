@@ -420,6 +420,13 @@ export interface TransactionDraftInput {
   payload: unknown;
 }
 
+export type VoucherExportType = 'cost' | 'payment';
+
+export interface VoucherExportInput {
+  ids: number[];
+  type: VoucherExportType;
+}
+
 export type AiProvider = 'openai' | 'anthropic';
 
 export interface AiConfig {
@@ -547,6 +554,9 @@ export interface EvergrowApi {
   };
   report(range: { from: string; to: string }): Promise<ReportData>;
   exportFile(format: 'csv' | 'xlsx' | 'pdf', filter: TxFilter): Promise<ExportResult>;
+  vouchers: {
+    export(input: VoucherExportInput): Promise<ExportResult>;
+  };
   paymentRequest: {
     export(input: PaymentRequestInput): Promise<ExportResult>;
   };

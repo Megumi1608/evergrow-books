@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { Store } from './db';
-import { buildCsv, periodLabel, writeXlsx } from './exporters';
+import { buildCsv, periodLabel, writeVoucherXlsx, writeXlsx } from './exporters';
 import { commitImport, previewImport } from './importer';
 import { backupNow, createBackup, getBackupInfo, openBackupFolder } from './backups';
 import { checkForUpdates, getUpdateState, installUpdate, openReleases, RELEASES_URL } from './updater';
@@ -30,6 +30,7 @@ import {
   validateTheme,
   validateToken,
   validateTxInput,
+  validateVoucherExportInput,
 } from './validation';
 import { todayIso } from '../shared/dates';
 
@@ -370,6 +371,34 @@ export function registerIpc(deps: IpcDeps): void {
     return savePdfRoute(`yeu-cau-thanh-toan_${ref || todayIso()}.pdf`, '/print-payment', {
       data: JSON.stringify(data),
     });
+  });
+
+  handle('voucher:export', async (input: unknown) => {
+    const data = validateVoucherExportInput(input);
+    const rows = store.transactionsByIds(data.ids).filter((row) => {
+      if (row.kind !== 'expense') return false;
+      const revenue =
+        row.serviceRevenue +
+        Math.round(row.serviceRevenue * 0.08) +
+        row.customerLift +
+        row.customerLower +
+        row.customerFar +
+        row.otherIncome +
+        row.customerFees.reduce((sum, fee) => sum + fee.amount, 0);
+      return revenue > 0;
+    });
+    if (rows.length === 0) throw new Error('Chọn giao dịch lô có doanh thu để xuất.');
+    const prefix = data.type === 'cost' ? 'BANG-KE-CHI-PHI' : 'PHIEU-YEU-CAU-THANH-TOAN';
+    const reference = rows[0].reference.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 40);
+    const defaultName =
+      rows.length === 1
+        ? `${prefix}_${reference || rows[0].id}.xlsx`
+        : `${prefix}_${rows.length}-lo.xlsx`;
+    const target = await saveDialog(defaultName, 'Excel Workbook', ['xlsx']);
+    if (!target) return { saved: false };
+    const file = withExtension(target, 'xlsx');
+    await writeVoucherXlsx(file, rows, data.type);
+    return { saved: true, path: file };
   });
 
   handle('data:backup', async () => {

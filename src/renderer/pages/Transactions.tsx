@@ -1,6 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Download,
@@ -17,7 +16,15 @@ import {
   ArrowLeftRight,
   Upload,
 } from 'lucide-react';
-import type { Category, ImportPreview, Transaction, TxInput, TxKind, TxPage } from '../../shared/types';
+import type {
+  Category,
+  ImportPreview,
+  Transaction,
+  TxInput,
+  TxKind,
+  TxPage,
+  VoucherExportType,
+} from '../../shared/types';
 import { METHOD_LABELS } from '../../shared/types';
 import { formatDate } from '../../shared/dates';
 import {
@@ -35,10 +42,12 @@ import { useToast } from '../components/toast';
 import { ImportDialog } from '../components/ImportDialog';
 import { feeLabel, orderedDetailEntries } from '../components/FeeBreakdown';
 import {
+  Checkbox,
   ConfirmDialog,
   DateInput,
   Dropdown,
   EmptyState,
+  Modal,
   PageHeader,
   PageLoading,
   Segmented,
@@ -61,9 +70,12 @@ export function TransactionsPage() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [deleteTarget, setDeleteTarget] = useState<Transaction | null>(null);
   const [deleting, setDeleting] = useState(false);
-  const [exporting, setExporting] = useState<'csv' | 'xlsx' | null>(null);
   const [exportOpen, setExportOpen] = useState(false);
-  const exportRef = useRef<HTMLDivElement>(null);
+  const [exportLoading, setExportLoading] = useState(false);
+  const [exportTargets, setExportTargets] = useState<Transaction[] | null>(null);
+  const [exportSelected, setExportSelected] = useState<Set<number>>(new Set());
+  const [exportType, setExportType] = useState<VoucherExportType>('cost');
+  const [exportBusy, setExportBusy] = useState(false);
   const [importPreview, setImportPreview] = useState<ImportPreview | null>(null);
   const [importing, setImporting] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
@@ -84,22 +96,6 @@ export function TransactionsPage() {
   useEffect(() => {
     setPage(0);
   }, [debouncedQuery]);
-
-  useEffect(() => {
-    if (!exportOpen) return;
-    const onPointerDown = (event: PointerEvent) => {
-      if (!exportRef.current?.contains(event.target as Node)) setExportOpen(false);
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setExportOpen(false);
-    };
-    document.addEventListener('pointerdown', onPointerDown, true);
-    document.addEventListener('keydown', onKeyDown);
-    return () => {
-      document.removeEventListener('pointerdown', onPointerDown, true);
-      document.removeEventListener('keydown', onKeyDown);
-    };
-  }, [exportOpen]);
 
   const filter = useMemo(
     () => ({
@@ -146,15 +142,41 @@ export function TransactionsPage() {
     setPage(0);
   };
 
-  const exportFile = async (format: 'csv' | 'xlsx') => {
-    setExporting(format);
+  const openExport = async () => {
+    setExportOpen(true);
+    setExportTargets(null);
+    setExportLoading(true);
     try {
-      const result = await api.exportFile(format, filter);
-      if (result.saved && result.path) toast(`Đã lưu ${result.path}`);
+      const result = await api.transactions.list({ ...filter, limit: 500, offset: 0 });
+      const rows = result.items.filter(
+        (transaction) => transaction.kind === 'expense' && transactionMoney(transaction).income > 0,
+      );
+      setExportTargets(rows);
+      setExportSelected(new Set(rows.map((row) => row.id)));
+    } catch (error) {
+      toast(getErrorMessage(error), 'error');
+      setExportOpen(false);
+    } finally {
+      setExportLoading(false);
+    }
+  };
+
+  const confirmExport = async () => {
+    if (exportSelected.size === 0 || exportBusy) return;
+    setExportBusy(true);
+    try {
+      const result = await api.vouchers.export({
+        ids: [...exportSelected],
+        type: exportType,
+      });
+      if (result.saved && result.path) {
+        toast(`Đã lưu ${result.path}`);
+        setExportOpen(false);
+      }
     } catch (error) {
       toast(getErrorMessage(error), 'error');
     } finally {
-      setExporting(null);
+      setExportBusy(false);
     }
   };
 
@@ -229,48 +251,15 @@ export function TransactionsPage() {
               {showDetails ? <EyeOff size={15} /> : <Eye size={15} />}
               {showDetails ? 'Ẩn chi tiết' : 'Hiện chi tiết'}
             </button>
-            <div className="export-menu" ref={exportRef}>
-              <button
-                type="button"
-                className="btn btn-outline btn-sm"
-                onClick={() => setExportOpen((value) => !value)}
-                disabled={exporting !== null}
-                aria-haspopup="menu"
-                aria-expanded={exportOpen}
-              >
-                {exporting ? <LoaderCircle size={15} className="spin" /> : <Download size={15} />}
-                Xuất
-                <ChevronDown size={14} />
-              </button>
-              {exportOpen ? (
-                <div className="export-menu-pop" role="menu">
-                  <button
-                    type="button"
-                    className="export-menu-item"
-                    role="menuitem"
-                    disabled={exporting !== null}
-                    onClick={() => {
-                      setExportOpen(false);
-                      void exportFile('csv');
-                    }}
-                  >
-                    CSV (.csv)
-                  </button>
-                  <button
-                    type="button"
-                    className="export-menu-item"
-                    role="menuitem"
-                    disabled={exporting !== null}
-                    onClick={() => {
-                      setExportOpen(false);
-                      void exportFile('xlsx');
-                    }}
-                  >
-                    Excel (.xlsx)
-                  </button>
-                </div>
-              ) : null}
-            </div>
+            <button
+              type="button"
+              className="btn btn-outline btn-sm"
+              onClick={openExport}
+              disabled={exportLoading}
+            >
+              {exportLoading ? <LoaderCircle size={15} className="spin" /> : <Download size={15} />}
+              Xuất
+            </button>
             <button type="button" className="btn btn-outline" onClick={startImport} disabled={importing}>
               {importing ? <LoaderCircle size={15} className="spin" /> : <Upload size={15} />}
               Nhập Excel
@@ -579,6 +568,109 @@ export function TransactionsPage() {
             bump();
           }}
         />
+      ) : null}
+
+      {exportOpen ? (
+        <Modal
+          title="Xuất giao dịch"
+          subtitle="Chọn giao dịch lô và loại file cần xuất."
+          onClose={() => {
+            if (!exportBusy) setExportOpen(false);
+          }}
+          width={760}
+          footer={
+            <>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => setExportOpen(false)}
+                disabled={exportBusy}
+              >
+                Huỷ
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={confirmExport}
+                disabled={exportBusy || exportSelected.size === 0}
+              >
+                {exportBusy ? <LoaderCircle size={15} className="spin" /> : null}
+                Xuất XLSX
+              </button>
+            </>
+          }
+        >
+          <div className="export-type-block">
+            <span className="field-label">Loại file</span>
+            <Segmented
+              value={exportType}
+              onChange={setExportType}
+              options={[
+                { value: 'cost' as VoucherExportType, label: 'Bảng kê chi phí' },
+                { value: 'payment' as VoucherExportType, label: 'Phiếu yêu cầu thanh toán' },
+              ]}
+              ariaLabel="Loại file xuất"
+            />
+            <p className="hint no-pad">Nội dung 2 file giống nhau, chỉ khác tiêu đề.</p>
+          </div>
+
+          {exportLoading || exportTargets === null ? (
+            <p className="hint no-pad">Đang tải giao dịch…</p>
+          ) : exportTargets.length === 0 ? (
+            <p className="hint no-pad">Không có giao dịch lô nào phù hợp bộ lọc hiện tại.</p>
+          ) : (
+            <>
+              <div className="export-pick-head">
+                <Checkbox
+                  checked={exportSelected.size === exportTargets.length}
+                  onChange={(checked) =>
+                    setExportSelected(
+                      checked ? new Set(exportTargets.map((row) => row.id)) : new Set(),
+                    )
+                  }
+                  label="Chọn tất cả"
+                />
+                <span className="hint no-pad">
+                  {exportSelected.size}/{exportTargets.length} giao dịch
+                </span>
+              </div>
+              <div className="export-pick-list">
+                {exportTargets.map((transaction) => {
+                  const money = transactionMoney(transaction);
+                  return (
+                    <div className="export-pick-item" key={transaction.id}>
+                      <Checkbox
+                        checked={exportSelected.has(transaction.id)}
+                        onChange={(checked) =>
+                          setExportSelected((current) => {
+                            const next = new Set(current);
+                            if (checked) next.add(transaction.id);
+                            else next.delete(transaction.id);
+                            return next;
+                          })
+                        }
+                        label={
+                          <span className="export-pick-title">
+                            {transaction.party || transaction.reference || `Giao dịch #${transaction.id}`}
+                          </span>
+                        }
+                        description={
+                          <span className="export-pick-meta">
+                            {formatDate(transaction.occurredOn)} ·{' '}
+                            {transaction.reference || 'Không số tờ khai'} ·{' '}
+                            {transaction.containerSize || 'Chưa có container'}
+                            <br />
+                            Thu {formatVnd(money.income)} · LN {formatSignedVnd(money.profit)}
+                          </span>
+                        }
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
+        </Modal>
       ) : null}
 
       {deleteTarget ? (
