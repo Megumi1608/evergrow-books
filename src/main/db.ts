@@ -632,9 +632,12 @@ export class Store {
       parts.push('t.occurred_on <= ?');
       params.push(filter.to);
     }
-    if (filter.kind === 'income' || filter.kind === 'expense') {
-      parts.push('t.kind = ?');
-      params.push(filter.kind);
+    if (filter.kind === 'income') {
+      parts.push(
+        `(t.kind = 'income' OR (t.kind = 'expense' AND ${SHIPMENT_REVENUE_SQL} > 0))`,
+      );
+    } else if (filter.kind === 'expense') {
+      parts.push("t.kind = 'expense'");
     }
     if (filter.categoryId) {
       parts.push('t.category_id = ?');
@@ -655,13 +658,24 @@ export class Store {
 
   listTransactions(filter: TxFilter): TxPage {
     const { clause, params } = this.buildWhere(filter);
+    const includeIncome = filter.kind !== 'expense';
+    const includeExpense = filter.kind !== 'income';
+    const incomeSum = includeIncome
+      ? `COALESCE(SUM(CASE WHEN t.kind = 'income' THEN t.amount ELSE 0 END), 0)
+         + COALESCE(SUM(${SHIPMENT_REVENUE_SQL}), 0)`
+      : '0';
+    const expenseSum = includeExpense
+      ? "COALESCE(SUM(CASE WHEN t.kind = 'expense' THEN t.amount ELSE 0 END), 0)"
+      : '0';
+    const deductionsSum = includeExpense
+      ? `COALESCE(SUM(${PROFIT_DEDUCTIONS_SQL}), 0)`
+      : '0';
     const totals = this.db
       .prepare(
         `SELECT COUNT(*) AS total,
-                COALESCE(SUM(CASE WHEN t.kind = 'income' THEN t.amount ELSE 0 END), 0)
-                  + COALESCE(SUM(${SHIPMENT_REVENUE_SQL}), 0) AS income,
-                COALESCE(SUM(CASE WHEN t.kind = 'expense' THEN t.amount ELSE 0 END), 0) AS expense,
-                COALESCE(SUM(${PROFIT_DEDUCTIONS_SQL}), 0) AS deductions
+                ${incomeSum} AS income,
+                ${expenseSum} AS expense,
+                ${deductionsSum} AS deductions
          FROM transactions t ${clause}`,
       )
       .get(...params) as { total: number; income: number; expense: number; deductions: number };

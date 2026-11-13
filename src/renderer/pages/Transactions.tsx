@@ -398,7 +398,13 @@ export function TransactionsPage() {
                   <th>Số tờ khai</th>
                   <th>Container</th>
                   <th>Hình thức</th>
-                  <th className="num">Thu / Chi / HQ-CK / LN</th>
+                  <th className="num">
+                    {kind === 'income'
+                      ? 'Thu nhập'
+                      : kind === 'expense'
+                        ? 'Chi phí / HQ-CK'
+                        : 'Lợi nhuận'}
+                  </th>
                   <th className="row-actions-head" aria-label="Thao tác" />
                 </tr>
               </thead>
@@ -433,33 +439,47 @@ export function TransactionsPage() {
                         <td className="num money-cell">
                           {(() => {
                             const money = transactionMoney(transaction);
+                            if (kind === 'income') {
+                              return (
+                                <div className="tx-money" title="Doanh thu của lô">
+                                  <span className="tx-money-row">
+                                    <b className="income">
+                                      {money.income > 0
+                                        ? `+${formatNumber(money.income)} đ`
+                                        : '0 đ'}
+                                    </b>
+                                  </span>
+                                </div>
+                              );
+                            }
+                            if (kind === 'expense') {
+                              return (
+                                <div className="tx-money" title="Chi phí tiền xe và khoản trừ">
+                                  <span className="tx-money-row">
+                                    <em>Chi</em>
+                                    <b className={money.expense > 0 ? 'expense' : ''}>
+                                      {money.expense > 0
+                                        ? `−${formatNumber(money.expense)} đ`
+                                        : '0 đ'}
+                                    </b>
+                                  </span>
+                                  <span className="tx-money-row">
+                                    <em>HQ/CK</em>
+                                    <b className={money.deductions > 0 ? 'expense' : ''}>
+                                      {money.deductions > 0
+                                        ? `−${formatNumber(money.deductions)} đ`
+                                        : '0 đ'}
+                                    </b>
+                                  </span>
+                                </div>
+                              );
+                            }
                             return (
                               <div
                                 className="tx-money"
-                                title="LN = thu − chi − hải quan − chiết khấu"
+                                title="Lợi nhuận = thu − chi − hải quan − chiết khấu"
                               >
                                 <span className="tx-money-row">
-                                  <em>Thu</em>
-                                  <b className="income">
-                                    {money.income > 0 ? `+${formatNumber(money.income)} đ` : '0 đ'}
-                                  </b>
-                                </span>
-                                <span className="tx-money-row">
-                                  <em>Chi</em>
-                                  <b className={money.expense > 0 ? 'expense' : ''}>
-                                    {money.expense > 0 ? `−${formatNumber(money.expense)} đ` : '0 đ'}
-                                  </b>
-                                </span>
-                                <span className="tx-money-row">
-                                  <em>HQ/CK</em>
-                                  <b className={money.deductions > 0 ? 'expense' : ''}>
-                                    {money.deductions > 0
-                                      ? `−${formatNumber(money.deductions)} đ`
-                                      : '0 đ'}
-                                  </b>
-                                </span>
-                                <span className="tx-money-row">
-                                  <em>LN</em>
                                   <b className={money.profit >= 0 ? 'income' : 'expense'}>
                                     {formatSignedVnd(money.profit)}
                                   </b>
